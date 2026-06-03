@@ -128,6 +128,20 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Grok 4 - Flagship (dated build)", "grok-4-0709"),
         ],
     },
+    "mistral": {
+        "quick": [
+            ("Mistral Small Latest - Fast, cost-efficient", "mistral-small-latest"),
+            ("Mistral Medium Latest - Balanced speed and quality", "mistral-medium-latest"),
+            ("Codestral Latest - Code-specialized", "codestral-latest"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("Mistral Large Latest - Flagship, top reasoning", "mistral-large-latest"),
+            ("Mistral Medium Latest - Balanced performance", "mistral-medium-latest"),
+            ("Pixtral Large Latest - Multimodal flagship", "pixtral-large-latest"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     "deepseek": {
         "quick": [
             ("DeepSeek V4 Flash - Latest V4 fast model", "deepseek-v4-flash"),

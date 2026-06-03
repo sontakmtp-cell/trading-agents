@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple, List, Optional
 
 import yfinance as yf
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,10 @@ class TradingAgentsGraph:
         if temperature is not None and temperature != "":
             kwargs["temperature"] = float(temperature)
 
+        max_retries = self.config.get("max_retries")
+        if max_retries is not None:
+            kwargs["max_retries"] = int(max_retries)
+
         return kwargs
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
@@ -261,6 +266,48 @@ class TradingAgentsGraph:
             )
             return None, None, None
 
+    def _fetch_binance_returns(
+        self,
+        ticker: str,
+        trade_date: str,
+        holding_days: int = 5,
+        benchmark: str = "BTCUSDT",
+    ) -> Tuple[Optional[float], Optional[float], Optional[int]]:
+        """Fetch crypto Spot returns from Binance OHLCV without Yahoo fallback."""
+        try:
+            from tradingagents.dataflows.binance import load_ohlcv
+
+            start = datetime.strptime(trade_date, "%Y-%m-%d")
+            end = start + timedelta(days=holding_days + 7)
+            end_str = end.strftime("%Y-%m-%d")
+
+            cutoff = pd.to_datetime(trade_date)
+            stock = load_ohlcv(ticker, end_str)
+            bench = load_ohlcv(benchmark, end_str)
+            stock = stock[stock["Date"] >= cutoff].sort_values("Date")
+            bench = bench[bench["Date"] >= cutoff].sort_values("Date")
+
+            if len(stock) < 2 or len(bench) < 2:
+                return None, None, None
+
+            actual_days = min(holding_days, len(stock) - 1, len(bench) - 1)
+            raw = float(
+                (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0])
+                / stock["Close"].iloc[0]
+            )
+            bench_ret = float(
+                (bench["Close"].iloc[actual_days] - bench["Close"].iloc[0])
+                / bench["Close"].iloc[0]
+            )
+            alpha = raw - bench_ret
+            return raw, alpha, actual_days
+        except Exception as e:
+            logger.warning(
+                "Could not resolve Binance outcome for %s on %s vs %s (will retry next run): %s",
+                ticker, trade_date, benchmark, e,
+            )
+            return None, None, None
+
     def _resolve_pending_entries(self, ticker: str) -> None:
         """Resolve pending log entries for ticker at the start of a new run.
 
@@ -275,12 +322,21 @@ class TradingAgentsGraph:
         if not pending:
             return
 
-        benchmark = self._resolve_benchmark(ticker)
+        binance_mode = self.config.get("data_vendors", {}).get("core_stock_apis") == "binance"
+        benchmark = (
+            self.config.get("benchmark_ticker")
+            or ("BTCUSDT" if binance_mode else self._resolve_benchmark(ticker))
+        )
         updates = []
         for entry in pending:
-            raw, alpha, days = self._fetch_returns(
-                ticker, entry["date"], benchmark=benchmark,
-            )
+            if binance_mode:
+                raw, alpha, days = self._fetch_binance_returns(
+                    ticker, entry["date"], benchmark=benchmark,
+                )
+            else:
+                raw, alpha, days = self._fetch_returns(
+                    ticker, entry["date"], benchmark=benchmark,
+                )
             if raw is None:
                 continue  # price not available yet — try again next run
             reflection = self.reflector.reflect_on_final_decision(
@@ -310,6 +366,9 @@ class TradingAgentsGraph:
         path and the CLI call this so the resolved identity reaches the whole
         graph regardless of entry point.
         """
+        data_vendors = self.config.get("data_vendors", {})
+        if asset_type == "crypto" or data_vendors.get("core_stock_apis") == "binance":
+            return build_instrument_context(ticker, asset_type, {})
         identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity)
 

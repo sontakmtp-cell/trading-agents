@@ -23,6 +23,8 @@ from .alpha_vantage import (
     get_global_news as get_alpha_vantage_global_news,
 )
 from .alpha_vantage_common import AlphaVantageRateLimitError
+from .binance import get_indicator as get_binance_indicator
+from .binance import get_stock_data as get_binance_stock
 from .symbol_utils import NoMarketDataError
 
 # Configuration and routing logic
@@ -64,6 +66,7 @@ TOOLS_CATEGORIES = {
 VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
+    "binance",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -72,11 +75,13 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "binance": get_binance_stock,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        "binance": get_binance_indicator,
     },
     # fundamental_data
     "get_fundamentals": {
@@ -141,12 +146,16 @@ def route_to_vendor(method: str, *args, **kwargs):
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
 
-    # Build fallback chain: primary vendors first, then remaining available vendors
     all_available_vendors = list(VENDOR_METHODS[method].keys())
-    fallback_vendors = primary_vendors.copy()
-    for vendor in all_available_vendors:
-        if vendor not in fallback_vendors:
-            fallback_vendors.append(vendor)
+    # Binance mode must not silently fall back to Yahoo/Alpha Vantage: those
+    # vendors use different symbols and data domains.
+    if primary_vendors == ["binance"]:
+        fallback_vendors = ["binance"]
+    else:
+        fallback_vendors = primary_vendors.copy()
+        for vendor in all_available_vendors:
+            if vendor not in fallback_vendors:
+                fallback_vendors.append(vendor)
 
     last_no_data: NoMarketDataError | None = None
     first_error: Exception | None = None
@@ -181,10 +190,11 @@ def route_to_vendor(method: str, *args, **kwargs):
         sym = last_no_data.symbol
         canonical = last_no_data.canonical
         resolved = "" if canonical == sym else f" (resolved to '{canonical}')"
+        vendor_label = " / ".join(v for v in fallback_vendors if v in all_available_vendors)
         return (
             f"NO_DATA_AVAILABLE: No market data found for '{sym}'{resolved} from "
-            f"any configured vendor. The symbol may be invalid, delisted, or not "
-            f"covered by Yahoo Finance / Alpha Vantage. Do not estimate or "
+            f"{vendor_label or 'any configured vendor'}. The symbol may be invalid, delisted, or not "
+            f"covered by the configured market-data source. Do not estimate or "
             f"fabricate values — report that data is unavailable for this symbol."
         )
 

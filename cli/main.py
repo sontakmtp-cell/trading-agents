@@ -1,4 +1,5 @@
 from typing import Optional
+import copy
 import os
 import datetime
 import typer
@@ -506,7 +507,7 @@ def get_user_selections():
     console.print(
         create_question_box(
             "Step 1: Ticker Symbol",
-            "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTC-USD)",
+            "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTCUSDT)",
             "SPY",
         )
     )
@@ -993,7 +994,7 @@ def run_analysis(checkpoint: bool = False):
     selections = get_user_selections()
 
     # Create config with selected research depth
-    config = DEFAULT_CONFIG.copy()
+    config = copy.deepcopy(DEFAULT_CONFIG)
     config["max_debate_rounds"] = selections["research_depth"]
     config["max_risk_discuss_rounds"] = selections["research_depth"]
     config["quick_think_llm"] = selections["shallow_thinker"]
@@ -1006,6 +1007,9 @@ def run_analysis(checkpoint: bool = False):
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
     config["checkpoint_enabled"] = checkpoint
+    if selections["asset_type"] == "crypto":
+        config["data_vendors"]["core_stock_apis"] = "binance"
+        config["data_vendors"]["technical_indicators"] = "binance"
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1081,6 +1085,10 @@ def run_analysis(checkpoint: bool = False):
     message_buffer.add_tool_call = save_tool_call_decorator(message_buffer, "add_tool_call")
     message_buffer.update_report_section = save_report_section_decorator(message_buffer, "update_report_section")
 
+    # Memory Log: resolve pending outcomes before this run, matching propagate().
+    message_buffer.add_message("System", "Resolving prior pending decisions...")
+    graph._resolve_pending_entries(selections["ticker"])
+
     # Now start the display layout
     layout = create_layout()
 
@@ -1120,10 +1128,12 @@ def run_analysis(checkpoint: bool = False):
         instrument_context = graph.resolve_instrument_context(
             selections["ticker"], selections["asset_type"]
         )
+        past_context = graph.memory_log.get_past_context(selections["ticker"])
         init_agent_state = graph.propagator.create_initial_state(
             selections["ticker"],
             selections["analysis_date"],
             asset_type=selections["asset_type"],
+            past_context=past_context,
             instrument_context=instrument_context,
         )
         # Pass callbacks to graph config for tool execution tracking
@@ -1241,6 +1251,11 @@ def run_analysis(checkpoint: bool = False):
         for chunk in trace:
             final_state.update(chunk)
         decision = graph.process_signal(final_state["final_trade_decision"])
+        graph.memory_log.store_decision(
+            ticker=selections["ticker"],
+            trade_date=selections["analysis_date"],
+            final_trade_decision=final_state["final_trade_decision"],
+        )
 
         # Update all agent statuses to completed
         for agent in message_buffer.agent_status:

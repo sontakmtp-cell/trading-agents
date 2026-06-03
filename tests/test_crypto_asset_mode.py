@@ -1,14 +1,20 @@
 import unittest
 
 from cli.models import AnalystType, AssetType
-from cli.utils import detect_asset_type, filter_analysts_for_asset_type
+from cli.utils import detect_asset_type, filter_analysts_for_asset_type, normalize_ticker_symbol
 from tradingagents.graph.propagation import Propagator
 
 
 class CryptoAssetModeTests(unittest.TestCase):
     def test_detects_crypto_pair_symbols(self):
         self.assertEqual(detect_asset_type("BTC-USD"), AssetType.CRYPTO)
+        self.assertEqual(detect_asset_type("BTCUSDT"), AssetType.CRYPTO)
         self.assertEqual(detect_asset_type("eth-usd"), AssetType.CRYPTO)
+
+    def test_normalizes_crypto_ticker_to_binance_spot_symbol(self):
+        self.assertEqual(normalize_ticker_symbol("btc-usdt"), "BTCUSDT")
+        self.assertEqual(normalize_ticker_symbol("BTC/USDT"), "BTCUSDT")
+        self.assertEqual(normalize_ticker_symbol("BTC-USD"), "BTCUSDT")
 
     def test_defaults_non_crypto_symbols_to_stock(self):
         self.assertEqual(detect_asset_type("AAPL"), AssetType.STOCK)
@@ -26,8 +32,6 @@ class CryptoAssetModeTests(unittest.TestCase):
             filter_analysts_for_asset_type(analysts, AssetType.CRYPTO),
             [
                 AnalystType.MARKET,
-                AnalystType.SOCIAL,
-                AnalystType.NEWS,
             ],
         )
 

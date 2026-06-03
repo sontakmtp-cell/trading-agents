@@ -69,13 +69,19 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     subsequent calls the cache is reused. Rows after curr_date are
     filtered out so backtests never see future prices.
     """
+    config = get_config()
+    vendors = config.get("data_vendors", {})
+    if vendors.get("core_stock_apis") == "binance" or vendors.get("technical_indicators") == "binance":
+        from .binance import load_ohlcv as load_binance_ohlcv
+
+        return load_binance_ohlcv(symbol, curr_date)
+
     # Resolve broker/forex symbols (XAUUSD+ -> GC=F) to Yahoo's convention,
     # then reject values that would escape the cache directory when
     # interpolated into the cache filename (e.g. ``../../tmp/x``).
     canonical = normalize_symbol(symbol)
     safe_symbol = safe_ticker_component(canonical)
 
-    config = get_config()
     curr_date_dt = pd.to_datetime(curr_date)
 
     # Cache uses a fixed window (15y to today) so one file per symbol

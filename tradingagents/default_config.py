@@ -18,6 +18,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
+    "TRADINGAGENTS_MAX_RETRIES":          "max_retries",
 }
 
 
@@ -70,6 +71,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # variation on models that honor it; reasoning models largely ignore it
     # and no setting makes LLM output bit-identical across runs (see README).
     "temperature": None,
+    "max_retries": 5,
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,
@@ -99,8 +101,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
+        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance, binance
+        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance, binance
         "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
         "news_data": "yfinance",             # Options: alpha_vantage, yfinance
     },

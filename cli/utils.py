@@ -7,12 +7,13 @@ from dotenv import find_dotenv, set_key
 from rich.console import Console
 
 from cli.models import AnalystType, AssetType
+from tradingagents.dataflows.binance import normalize_binance_symbol
 from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
 
 console = Console()
 
-TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTC-USD"
+TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTCUSDT"
 
 ANALYST_ORDER = [
     ("Market Analyst", AnalystType.MARKET),
@@ -22,6 +23,7 @@ ANALYST_ORDER = [
 ]
 
 CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
+BINANCE_SPOT_QUOTES = ("USDT",)
 
 
 def get_ticker() -> str:
@@ -55,12 +57,21 @@ def get_ticker() -> str:
 
 def normalize_ticker_symbol(ticker: str) -> str:
     """Normalize ticker input while preserving exchange suffixes."""
-    return ticker.strip().upper()
+    normalized = ticker.strip().upper()
+    if detect_asset_type(normalized) == AssetType.CRYPTO:
+        return normalize_binance_symbol(normalized)
+    return normalized
 
 
 def detect_asset_type(ticker: str) -> AssetType:
     normalized_ticker = ticker.strip().upper()
+    compact_ticker = normalized_ticker.replace("-", "").replace("/", "").replace("_", "")
     if normalized_ticker.endswith(CRYPTO_SUFFIXES):
+        return AssetType.CRYPTO
+    if any(
+        compact_ticker.endswith(quote) and len(compact_ticker) > len(quote)
+        for quote in BINANCE_SPOT_QUOTES
+    ):
         return AssetType.CRYPTO
     return AssetType.STOCK
 
@@ -73,7 +84,7 @@ def filter_analysts_for_asset_type(
     return [
         analyst
         for analyst in analysts
-        if analyst != AnalystType.FUNDAMENTALS
+        if analyst == AnalystType.MARKET
     ]
 
 
@@ -284,6 +295,7 @@ def _llm_provider_table() -> list[tuple[str, str, str | None]]:
         ("Anthropic", "anthropic", "https://api.anthropic.com/"),
         ("xAI", "xai", "https://api.x.ai/v1"),
         ("DeepSeek", "deepseek", "https://api.deepseek.com"),
+        ("Mistral", "mistral", "https://api.mistral.ai/v1"),
         ("Qwen", "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
         ("GLM", "glm", "https://open.bigmodel.cn/api/paas/v4/"),
         ("MiniMax", "minimax", "https://api.minimax.io/v1"),
