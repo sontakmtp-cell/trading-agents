@@ -37,7 +37,7 @@ def get_ticker() -> str:
         f"Enter ticker symbol (e.g. {TICKER_INPUT_EXAMPLES}):",
         validate=lambda x: (
             not x.strip()
-            or (all(ch.isalnum() or ch in "._-^" for ch in x.strip()) and len(x.strip()) <= 32)
+            or (all(ch.isalnum() or ch in "._-^=" for ch in x.strip()) and len(x.strip()) <= 32)
             or "Please enter a valid ticker symbol, e.g. AAPL, 000404.SZ, 0700.HK."
         ),
         style=questionary.Style(
