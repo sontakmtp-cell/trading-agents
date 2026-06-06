@@ -46,6 +46,25 @@ def get_language_instruction() -> str:
     return f" Write your entire response in {lang}."
 
 
+def get_report_output_instruction(round_number: Optional[int] = None) -> str:
+    """Return shared Markdown presentation instructions for report-producing agents."""
+    round_line = (
+        f" This is round {round_number}; create exactly one H3 sub-topic headed "
+        f"`### **{round_number}. ...**` for this response."
+        if round_number is not None
+        else " Start each report sub-topic with an H3 heading such as `### **1. ...**`."
+    )
+    return (
+        " Format the report body as Markdown without H1 or H2 headings because the "
+        "report assembler adds them."
+        + round_line
+        + " Use H4 headings such as `#### **A. ...**` for analysis branches and "
+        "numbered lists with bold lead keywords for details. Preserve every source "
+        "fact, number, percentage, citation, and Markdown table exactly. Do not "
+        "change the analysis task or add unsupported data."
+    )
+
+
 def _clean_identity_value(value: Any) -> Optional[str]:
     """Return a trimmed string, or None for empty / placeholder-ish values."""
     if not isinstance(value, str):

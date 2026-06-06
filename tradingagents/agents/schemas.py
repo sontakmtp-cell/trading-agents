@@ -93,11 +93,15 @@ class ResearchPlan(BaseModel):
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
     return "\n".join([
+        "### **1. Research Manager Recommendation**",
+        "",
+        "#### **A. Decision**",
+        "",
+        f"1. **Recommendation**: {plan.recommendation.value}",
+        f"2. **Rationale**: {plan.rationale}",
+        f"3. **Strategic Actions**: {plan.strategic_actions}",
+        "",
         f"**Recommendation**: {plan.recommendation.value}",
-        "",
-        f"**Rationale**: {plan.rationale}",
-        "",
-        f"**Strategic Actions**: {plan.strategic_actions}",
     ])
 
 
@@ -146,16 +150,19 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
     and any external code that greps for it.
     """
     parts = [
-        f"**Action**: {proposal.action.value}",
+        "### **1. Trader Transaction Proposal**",
         "",
-        f"**Reasoning**: {proposal.reasoning}",
+        "#### **A. Decision and Execution**",
+        "",
+        f"1. **Action**: {proposal.action.value}",
+        f"2. **Reasoning**: {proposal.reasoning}",
     ]
     if proposal.entry_price is not None:
-        parts.extend(["", f"**Entry Price**: {proposal.entry_price}"])
+        parts.append(f"3. **Entry Price**: {proposal.entry_price}")
     if proposal.stop_loss is not None:
-        parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
+        parts.append(f"4. **Stop Loss**: {proposal.stop_loss}")
     if proposal.position_sizing:
-        parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
+        parts.append(f"5. **Position Sizing**: {proposal.position_sizing}")
     parts.extend([
         "",
         f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
@@ -215,16 +222,19 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     parsers and the report writers already handle.
     """
     parts = [
-        f"**Rating**: {decision.rating.value}",
+        "### **1. Portfolio Manager Decision**",
         "",
-        f"**Executive Summary**: {decision.executive_summary}",
+        "#### **A. Final Position**",
         "",
-        f"**Investment Thesis**: {decision.investment_thesis}",
+        f"1. **Rating**: {decision.rating.value}",
+        f"2. **Executive Summary**: {decision.executive_summary}",
+        f"3. **Investment Thesis**: {decision.investment_thesis}",
     ]
     if decision.price_target is not None:
-        parts.extend(["", f"**Price Target**: {decision.price_target}"])
+        parts.append(f"4. **Price Target**: {decision.price_target}")
     if decision.time_horizon:
-        parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
+        parts.append(f"5. **Time Horizon**: {decision.time_horizon}")
+    parts.extend(["", f"**Rating**: {decision.rating.value}"])
     return "\n".join(parts)
 
 
@@ -309,9 +319,15 @@ def render_sentiment_report(report: SentimentReport) -> str:
     without regex.
     """
     return "\n".join([
+        "### **1. Sentiment Assessment**",
+        "",
+        "#### **A. Overall Signal**",
+        "",
         f"**Overall Sentiment:** **{report.overall_band.value}** "
         f"(Score: {report.overall_score:.1f}/10)",
         f"**Confidence:** {report.confidence.capitalize()}",
+        "",
+        "#### **B. Detailed Analysis**",
         "",
         report.narrative,
     ])

@@ -30,6 +30,7 @@ from tradingagents.graph.analyst_execution import (
     sync_analyst_tracker_from_chunk,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.report_formatting import render_complete_report, save_report_documents
 from cli.models import AnalystType
 from cli.utils import *
 from cli.announcements import fetch_announcements, display_announcements
@@ -84,15 +85,17 @@ class MessageBuffer:
         self.current_agent = None
         self.report_sections = {}
         self.selected_analysts = []
+        self.ticker = "TICKER"
         self._processed_message_ids = set()
 
-    def init_for_analysis(self, selected_analysts):
+    def init_for_analysis(self, selected_analysts, ticker="TICKER"):
         """Initialize agent status and report sections based on selected analysts.
 
         Args:
             selected_analysts: List of analyst type strings (e.g., ["market", "news"])
         """
         self.selected_analysts = [a.lower() for a in selected_analysts]
+        self.ticker = ticker
 
         # Build agent_status dynamically
         self.agent_status = {}
@@ -190,45 +193,14 @@ class MessageBuffer:
         self._update_final_report()
 
     def _update_final_report(self):
-        report_parts = []
-
-        # Analyst Team Reports - use .get() to handle missing sections
-        analyst_sections = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
-        if any(self.report_sections.get(section) for section in analyst_sections):
-            report_parts.append("## Analyst Team Reports")
-            if self.report_sections.get("market_report"):
-                report_parts.append(
-                    f"### Market Analysis\n{self.report_sections['market_report']}"
-                )
-            if self.report_sections.get("sentiment_report"):
-                report_parts.append(
-                    f"### Social Sentiment\n{self.report_sections['sentiment_report']}"
-                )
-            if self.report_sections.get("news_report"):
-                report_parts.append(
-                    f"### News Analysis\n{self.report_sections['news_report']}"
-                )
-            if self.report_sections.get("fundamentals_report"):
-                report_parts.append(
-                    f"### Fundamentals Analysis\n{self.report_sections['fundamentals_report']}"
-                )
-
-        # Research Team Reports
-        if self.report_sections.get("investment_plan"):
-            report_parts.append("## Research Team Decision")
-            report_parts.append(f"{self.report_sections['investment_plan']}")
-
-        # Trading Team Reports
-        if self.report_sections.get("trader_investment_plan"):
-            report_parts.append("## Trading Team Plan")
-            report_parts.append(f"{self.report_sections['trader_investment_plan']}")
-
-        # Portfolio Management Decision
-        if self.report_sections.get("final_trade_decision"):
-            report_parts.append("## Portfolio Management Decision")
-            report_parts.append(f"{self.report_sections['final_trade_decision']}")
-
-        self.final_report = "\n\n".join(report_parts) if report_parts else None
+        state = dict(self.report_sections)
+        state["investment_debate_state"] = {
+            "judge_decision": self.report_sections.get("investment_plan") or "",
+        }
+        state["risk_debate_state"] = {
+            "judge_decision": self.report_sections.get("final_trade_decision") or "",
+        }
+        self.final_report = render_complete_report(state, self.ticker)
 
 
 message_buffer = MessageBuffer()
@@ -698,153 +670,15 @@ def get_analysis_date():
 
 def save_report_to_disk(final_state, ticker: str, save_path: Path):
     """Save complete analysis report to disk with organized subfolders."""
-    save_path.mkdir(parents=True, exist_ok=True)
-    sections = []
-
-    # 1. Analysts
-    analysts_dir = save_path / "1_analysts"
-    analyst_parts = []
-    if final_state.get("market_report"):
-        analysts_dir.mkdir(exist_ok=True)
-        (analysts_dir / "market.md").write_text(final_state["market_report"], encoding="utf-8")
-        analyst_parts.append(("Market Analyst", final_state["market_report"]))
-    if final_state.get("sentiment_report"):
-        analysts_dir.mkdir(exist_ok=True)
-        (analysts_dir / "sentiment.md").write_text(final_state["sentiment_report"], encoding="utf-8")
-        analyst_parts.append(("Sentiment Analyst", final_state["sentiment_report"]))
-    if final_state.get("news_report"):
-        analysts_dir.mkdir(exist_ok=True)
-        (analysts_dir / "news.md").write_text(final_state["news_report"], encoding="utf-8")
-        analyst_parts.append(("News Analyst", final_state["news_report"]))
-    if final_state.get("fundamentals_report"):
-        analysts_dir.mkdir(exist_ok=True)
-        (analysts_dir / "fundamentals.md").write_text(final_state["fundamentals_report"], encoding="utf-8")
-        analyst_parts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
-    if analyst_parts:
-        content = "\n\n".join(f"### {name}\n{text}" for name, text in analyst_parts)
-        sections.append(f"## I. Analyst Team Reports\n\n{content}")
-
-    # 2. Research
-    if final_state.get("investment_debate_state"):
-        research_dir = save_path / "2_research"
-        debate = final_state["investment_debate_state"]
-        research_parts = []
-        if debate.get("bull_history"):
-            research_dir.mkdir(exist_ok=True)
-            (research_dir / "bull.md").write_text(debate["bull_history"], encoding="utf-8")
-            research_parts.append(("Bull Researcher", debate["bull_history"]))
-        if debate.get("bear_history"):
-            research_dir.mkdir(exist_ok=True)
-            (research_dir / "bear.md").write_text(debate["bear_history"], encoding="utf-8")
-            research_parts.append(("Bear Researcher", debate["bear_history"]))
-        if debate.get("judge_decision"):
-            research_dir.mkdir(exist_ok=True)
-            (research_dir / "manager.md").write_text(debate["judge_decision"], encoding="utf-8")
-            research_parts.append(("Research Manager", debate["judge_decision"]))
-        if research_parts:
-            content = "\n\n".join(f"### {name}\n{text}" for name, text in research_parts)
-            sections.append(f"## II. Research Team Decision\n\n{content}")
-
-    # 3. Trading
-    if final_state.get("trader_investment_plan"):
-        trading_dir = save_path / "3_trading"
-        trading_dir.mkdir(exist_ok=True)
-        (trading_dir / "trader.md").write_text(final_state["trader_investment_plan"], encoding="utf-8")
-        sections.append(f"## III. Trading Team Plan\n\n### Trader\n{final_state['trader_investment_plan']}")
-
-    # 4. Risk Management
-    if final_state.get("risk_debate_state"):
-        risk_dir = save_path / "4_risk"
-        risk = final_state["risk_debate_state"]
-        risk_parts = []
-        if risk.get("aggressive_history"):
-            risk_dir.mkdir(exist_ok=True)
-            (risk_dir / "aggressive.md").write_text(risk["aggressive_history"], encoding="utf-8")
-            risk_parts.append(("Aggressive Analyst", risk["aggressive_history"]))
-        if risk.get("conservative_history"):
-            risk_dir.mkdir(exist_ok=True)
-            (risk_dir / "conservative.md").write_text(risk["conservative_history"], encoding="utf-8")
-            risk_parts.append(("Conservative Analyst", risk["conservative_history"]))
-        if risk.get("neutral_history"):
-            risk_dir.mkdir(exist_ok=True)
-            (risk_dir / "neutral.md").write_text(risk["neutral_history"], encoding="utf-8")
-            risk_parts.append(("Neutral Analyst", risk["neutral_history"]))
-        if risk_parts:
-            content = "\n\n".join(f"### {name}\n{text}" for name, text in risk_parts)
-            sections.append(f"## IV. Risk Management Team Decision\n\n{content}")
-
-        # 5. Portfolio Manager
-        if risk.get("judge_decision"):
-            portfolio_dir = save_path / "5_portfolio"
-            portfolio_dir.mkdir(exist_ok=True)
-            (portfolio_dir / "decision.md").write_text(risk["judge_decision"], encoding="utf-8")
-            sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
-
-    # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
-    return save_path / "complete_report.md"
+    return save_report_documents(final_state, ticker, save_path)
 
 
-def display_complete_report(final_state):
+def display_complete_report(final_state, ticker=None):
     """Display the complete analysis report sequentially (avoids truncation)."""
     console.print()
     console.print(Rule("Complete Analysis Report", style="bold green"))
-
-    # I. Analyst Team Reports
-    analysts = []
-    if final_state.get("market_report"):
-        analysts.append(("Market Analyst", final_state["market_report"]))
-    if final_state.get("sentiment_report"):
-        analysts.append(("Sentiment Analyst", final_state["sentiment_report"]))
-    if final_state.get("news_report"):
-        analysts.append(("News Analyst", final_state["news_report"]))
-    if final_state.get("fundamentals_report"):
-        analysts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
-    if analysts:
-        console.print(Panel("[bold]I. Analyst Team Reports[/bold]", border_style="cyan"))
-        for title, content in analysts:
-            console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
-
-    # II. Research Team Reports
-    if final_state.get("investment_debate_state"):
-        debate = final_state["investment_debate_state"]
-        research = []
-        if debate.get("bull_history"):
-            research.append(("Bull Researcher", debate["bull_history"]))
-        if debate.get("bear_history"):
-            research.append(("Bear Researcher", debate["bear_history"]))
-        if debate.get("judge_decision"):
-            research.append(("Research Manager", debate["judge_decision"]))
-        if research:
-            console.print(Panel("[bold]II. Research Team Decision[/bold]", border_style="magenta"))
-            for title, content in research:
-                console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
-
-    # III. Trading Team
-    if final_state.get("trader_investment_plan"):
-        console.print(Panel("[bold]III. Trading Team Plan[/bold]", border_style="yellow"))
-        console.print(Panel(Markdown(final_state["trader_investment_plan"]), title="Trader", border_style="blue", padding=(1, 2)))
-
-    # IV. Risk Management Team
-    if final_state.get("risk_debate_state"):
-        risk = final_state["risk_debate_state"]
-        risk_reports = []
-        if risk.get("aggressive_history"):
-            risk_reports.append(("Aggressive Analyst", risk["aggressive_history"]))
-        if risk.get("conservative_history"):
-            risk_reports.append(("Conservative Analyst", risk["conservative_history"]))
-        if risk.get("neutral_history"):
-            risk_reports.append(("Neutral Analyst", risk["neutral_history"]))
-        if risk_reports:
-            console.print(Panel("[bold]IV. Risk Management Team Decision[/bold]", border_style="red"))
-            for title, content in risk_reports:
-                console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
-
-        # V. Portfolio Manager Decision
-        if risk.get("judge_decision"):
-            console.print(Panel("[bold]V. Portfolio Manager Decision[/bold]", border_style="green"))
-            console.print(Panel(Markdown(risk["judge_decision"]), title="Portfolio Manager", border_style="blue", padding=(1, 2)))
+    report_ticker = str(ticker or final_state.get("company_of_interest", "TICKER"))
+    console.print(Markdown(render_complete_report(final_state, report_ticker)))
 
 
 def update_research_team_status(status):
@@ -1032,7 +866,7 @@ def run_analysis(checkpoint: bool = False):
     )
 
     # Initialize message buffer with selected analysts
-    message_buffer.init_for_analysis(selected_analyst_keys)
+    message_buffer.init_for_analysis(selected_analyst_keys, selections["ticker"])
 
     # Track start time for elapsed display
     start_time = time.time()
@@ -1297,7 +1131,7 @@ def run_analysis(checkpoint: bool = False):
     # Prompt to display full report
     display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
     if display_choice in ("Y", "YES", ""):
-        display_complete_report(final_state)
+        display_complete_report(final_state, selections["ticker"])
 
 
 @app.command()
