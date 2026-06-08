@@ -202,7 +202,17 @@ def select_openrouter_model() -> str:
     """Select an OpenRouter model from the newest available, or enter a custom ID."""
     models = _fetch_openrouter_models()
 
-    choices = [questionary.Choice(name, value=mid) for name, mid in models[:5]]
+    choices = [
+        questionary.Choice("DeepSeek V4 Pro (deepseek/deepseek-v4-pro)", value="deepseek/deepseek-v4-pro"),
+        questionary.Choice("DeepSeek V4 Flash (deepseek/deepseek-v4-flash)", value="deepseek/deepseek-v4-flash"),
+    ]
+    added = 0
+    for name, mid in models:
+        if mid not in ("deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash"):
+            choices.append(questionary.Choice(name, value=mid))
+            added += 1
+            if added >= 5:
+                break
     choices.append(questionary.Choice("Custom model ID", value="custom"))
 
     choice = questionary.select(
@@ -571,6 +581,7 @@ def ask_output_language() -> str:
             questionary.Choice("German (Deutsch)", "German"),
             questionary.Choice("Arabic (العربية)", "Arabic"),
             questionary.Choice("Russian (Русский)", "Russian"),
+            questionary.Choice("Vietnamese (Tiếng Việt)", "Vietnamese"),
             questionary.Choice("Custom language", "custom"),
         ],
         style=questionary.Style([
