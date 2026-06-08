@@ -94,8 +94,11 @@ def _fetch_subreddit_rss(
     try:
         with urlopen(req, timeout=timeout) as resp:
             root = ET.fromstring(resp.read())
-    except (HTTPError, URLError, TimeoutError, ET.ParseError) as exc:
+    except (HTTPError, URLError, TimeoutError) as exc:
         logger.warning("Reddit RSS fetch failed for r/%s · %s: %s", sub, ticker, exc)
+        raise exc
+    except ET.ParseError as exc:
+        logger.warning("Reddit RSS parse failed for r/%s · %s: %s", sub, ticker, exc)
         return []
 
     posts = []
@@ -129,12 +132,21 @@ def _fetch_subreddit(
             payload = json.loads(resp.read())
         children = (payload.get("data") or {}).get("children") or []
         return [c.get("data", {}) for c in children if isinstance(c, dict)]
-    except (HTTPError, URLError, json.JSONDecodeError, TimeoutError) as exc:
+    except (HTTPError, URLError, TimeoutError) as exc:
         logger.warning(
             "Reddit JSON fetch failed for r/%s · %s: %s — falling back to RSS feed.",
             sub, ticker, exc,
         )
         return _fetch_subreddit_rss(ticker, sub, limit, timeout)
+    except json.JSONDecodeError as exc:
+        logger.warning(
+            "Reddit JSON parse failed for r/%s · %s: %s — falling back to RSS feed.",
+            sub, ticker, exc,
+        )
+        try:
+            return _fetch_subreddit_rss(ticker, sub, limit, timeout)
+        except (HTTPError, URLError, TimeoutError):
+            return []
 
 
 def fetch_reddit_posts(
@@ -152,44 +164,52 @@ def fetch_reddit_posts(
     """
     blocks = []
     total_posts = 0
-    for i, sub in enumerate(subreddits):
+    errors = []
+    subreddits_list = list(subreddits)
+
+    for i, sub in enumerate(subreddits_list):
         if i > 0:
             time.sleep(inter_request_delay)
-        posts = _fetch_subreddit(ticker, sub, limit_per_sub, timeout)
-        total_posts += len(posts)
-        if not posts:
-            blocks.append(f"r/{sub}: <no posts found mentioning {ticker.upper()} in the past 7 days>")
-            continue
+        try:
+            posts = _fetch_subreddit(ticker, sub, limit_per_sub, timeout)
+            total_posts += len(posts)
+            if not posts:
+                blocks.append(f"r/{sub}: <no posts found mentioning {ticker.upper()} in the past 7 days>")
+                continue
 
-        via_rss = any(p.get("source") == "rss" for p in posts)
-        header = f"r/{sub} — {len(posts)} recent posts mentioning {ticker.upper()}"
-        header += " (via RSS feed; scores/comments unavailable):" if via_rss else ":"
-        lines = [header]
-        for p in posts:
-            title = (p.get("title") or "").replace("\n", " ").strip()
-            score = p.get("score")
-            comments = p.get("num_comments")
-            created = p.get("created_utc")
-            created_str = (
-                time.strftime("%Y-%m-%d", time.gmtime(created)) if created else "?"
-            )
-            # Score / comment counts are absent on the RSS fallback path —
-            # show them only when present rather than printing fake zeros.
-            meta = created_str
-            if score is not None and comments is not None:
-                meta += f" · {score:>4}↑ · {comments:>3}c"
-            selftext = (p.get("selftext") or "").replace("\n", " ").strip()
-            if len(selftext) > 240:
-                selftext = selftext[:240] + "…"
-            lines.append(
-                f"  [{meta}] {title}"
-                + (f"\n    body excerpt: {selftext}" if selftext else "")
-            )
-        blocks.append("\n".join(lines))
+            via_rss = any(p.get("source") == "rss" for p in posts)
+            header = f"r/{sub} — {len(posts)} recent posts mentioning {ticker.upper()}"
+            header += " (via RSS feed; scores/comments unavailable):" if via_rss else ":"
+            lines = [header]
+            for p in posts:
+                title = (p.get("title") or "").replace("\n", " ").strip()
+                score = p.get("score")
+                comments = p.get("num_comments")
+                created = p.get("created_utc")
+                created_str = (
+                    time.strftime("%Y-%m-%d", time.gmtime(created)) if created else "?"
+                )
+                meta = created_str
+                if score is not None and comments is not None:
+                    meta += f" · {score:>4}↑ · {comments:>3}c"
+                selftext = (p.get("selftext") or "").replace("\n", " ").strip()
+                if len(selftext) > 240:
+                    selftext = selftext[:240] + "…"
+                lines.append(
+                    f"  [{meta}] {title}"
+                    + (f"\n    body excerpt: {selftext}" if selftext else "")
+                )
+            blocks.append("\n".join(lines))
+        except (HTTPError, URLError, TimeoutError) as exc:
+            errors.append(exc)
+            blocks.append(f"r/{sub}: <reddit unavailable: {type(exc).__name__}>")
 
-    if total_posts == 0:
+    if len(errors) == len(subreddits_list) and errors:
+        return f"<reddit unavailable: {type(errors[0]).__name__}>"
+
+    if total_posts == 0 and not errors:
         return (
             f"<no Reddit posts found mentioning {ticker.upper()} across "
-            f"{', '.join(f'r/{s}' for s in subreddits)} in the past 7 days>"
+            f"{', '.join(f'r/{s}' for s in subreddits_list)} in the past 7 days>"
         )
     return "\n\n".join(blocks)

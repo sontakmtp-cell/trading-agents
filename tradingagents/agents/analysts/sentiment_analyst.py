@@ -166,7 +166,7 @@ Community discussion. Engagement signal via upvote score and comment count. Subr
 
 5. **Identify recurring narrative themes.** What topic keeps coming up across sources? That's the dominant narrative driving current sentiment.
 
-6. **Be honest about data limits.** If StockTwits returned only a handful of messages, or one or more sources returned an "<unavailable>" placeholder, the sentiment read is less robust — flag this explicitly in the `confidence` field and the narrative. If the sources are silent on a given subreddit, say so.
+6. **Be honest about data limits.** If StockTwits or Reddit returned a connection failure placeholder (e.g. "<... unavailable: URLError>" or similar connection error), it indicates a network connection or firewall block on the host machine, not a lack of interest. In this case, rely primarily on the available News data for your sentiment score, explain the social media unavailability in the narrative, and do not penalize the confidence to 'low' solely because of these connection blocks (you may use 'medium' confidence if News is robust). However, if the sources are reachable but genuinely returned an empty message block or only a handful of messages (silent), then the sentiment read is indeed less robust — flag this as 'low' confidence. If the sources are silent on a given subreddit, say so.
 
 7. **Identify catalysts and risks** that emerge across sources — news of upcoming earnings, product launches, competitive threats, macro headlines, etc.
 

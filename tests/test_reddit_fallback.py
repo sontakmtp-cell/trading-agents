@@ -112,3 +112,10 @@ class TestFormatterHandlesRssPosts:
         assert "1234↑" in out
         assert "56c" in out
         assert "via RSS" not in out
+
+    def test_connection_error_returns_unavailable_placeholder(self):
+        from urllib.error import URLError
+        err = URLError("Connection refused")
+        with patch.object(reddit, "_fetch_subreddit", side_effect=err):
+            out = reddit.fetch_reddit_posts("NVDA", subreddits=("stocks", "investing"), inter_request_delay=0)
+        assert out == "<reddit unavailable: URLError>"
