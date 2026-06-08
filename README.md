@@ -24,6 +24,7 @@
 - **🌐 Multi-Model Support:** Native integration with OpenAI, Anthropic, Google Gemini, DeepSeek, Azure, Ollama, and more.
 - **🔄 State Persistence:** LangGraph-powered checkpointing allows resuming interrupted runs.
 - **📊 Real-time Data:** Seamlessly integrates with Yahoo Finance, Alpha Vantage, and Binance. Supports global tickers like `AAPL` (US), `0700.HK` (HK), and `BTC-USD` (Crypto).
+- **Investor Briefing:** Optionally inject your own position, thesis, and risk constraints into decision-making agents without changing the default public-data workflow.
 - **🐳 Docker Ready:** Quick deployment using Docker Compose.
 
 ---
@@ -31,6 +32,7 @@
 ## 📈 Recent Updates
 
 - **v0.2.5:** Grounded Sentiment Analyst, expanded model coverage (GPT-5.5, Qwen/GLM/MiniMax dual-region), remote Ollama support.
+- **Investor Briefing:** Optional CLI/Python input for investor positions, thesis notes, and constraints; injected into researchers, trader, risk debators, and portfolio manager.
 - **v0.2.4:** Structured-output agents, LangGraph checkpoint resume, persistent decision logging.
 - **v0.2.0 - v0.2.3:** Multi-provider LLM support, multi-language support, backtesting date fidelity.
 
@@ -95,6 +97,29 @@ Launch the interactive terminal interface to select tickers, dates, and LLM back
 tradingagents
 ```
 
+During a new analysis, the CLI can optionally ask for an **Investor Briefing**. Use this when you want the decision agents to consider private context such as:
+
+- current position size and average entry price
+- portfolio weight, stop-loss, take-profit, or holding-period constraints
+- investment thesis, internal notes, or legally usable supplemental research
+- event context that should be weighed against public market data
+
+You can type the briefing directly in the terminal or load it from a `.md` / `.txt` file. If you skip the briefing, the pipeline runs exactly as before.
+
+Example briefing:
+
+```markdown
+## Thesis / Supplemental Notes
+- Gold may receive safe-haven demand after new Israel-Iran escalation.
+
+## Current Position
+- Holding GC=F at 40% of account, average entry 4450.
+
+## Constraints & Goals
+- Avoid increasing exposure unless there is strong confirmation.
+- Consider partial profit-taking if price spikes on news.
+```
+
 <div align="center">
   <img src="assets/cli/cli_init.png" alt="CLI Interface" width="600">
 </div>
@@ -116,11 +141,32 @@ _, decision = ta.propagate("NVDA", "2026-01-15")
 print(decision)
 ```
 
+To pass investor context programmatically, use the optional `investor_briefing` argument:
+
+```python
+investor_briefing = """
+## Current Position
+- Holding GC=F at 40% of account, average entry 4450.
+
+## Constraints
+- Do not add unless the setup is strongly confirmed.
+- Evaluate whether to hold, reduce, or take partial profit.
+"""
+
+_, decision = ta.propagate(
+    "GC=F",
+    "2026-06-08",
+    investor_briefing=investor_briefing,
+)
+print(decision)
+```
+
 ---
 
 ## ⚙️ Advanced Features
 
 - **💾 State Persistence:** Automatically logs outcomes to `~/.tradingagents/memory/trading_memory.md`.
+- **Investor Briefing:** Optional internal context is stored in graph state for the run and injected only into decision-making agents. The raw briefing is not logged as a separate key in `full_states_log_*.json`, though agent-generated reports may mention or summarize it.
 - **⏯️ Checkpoint Resume:** Save state after each agent node to resume interrupted runs:
   ```bash
   tradingagents analyze --checkpoint

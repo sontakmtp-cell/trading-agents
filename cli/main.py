@@ -632,10 +632,62 @@ def get_user_selections():
         )
         anthropic_effort = ask_anthropic_effort()
 
+    # Step 9: Optional investor briefing
+    investor_briefing = ""
+    add_briefing = questionary.confirm(
+        "Add investor briefing? (positions, thesis, constraints)",
+        default=False,
+    ).ask()
+
+    if add_briefing:
+        briefing_method = questionary.select(
+            "How would you like to provide the briefing?",
+            choices=[
+                "Type directly in terminal",
+                "Load from file",
+            ],
+        ).ask()
+
+        if briefing_method == "Load from file":
+            briefing_path = questionary.path(
+                "Path to briefing file (.md or .txt):",
+            ).ask()
+            with open(briefing_path, "r", encoding="utf-8") as f:
+                investor_briefing = f.read().strip()
+        else:
+            console.print(
+                "[dim]Enter your briefing below. "
+                "Press Enter twice on an empty line to finish.[/dim]"
+            )
+            lines = []
+            empty_count = 0
+            while True:
+                line = input()
+                if line == "":
+                    empty_count += 1
+                    if empty_count >= 2:
+                        break
+                    lines.append("")
+                else:
+                    empty_count = 0
+                    lines.append(line)
+            investor_briefing = "\n".join(lines).strip()
+
+        if investor_briefing:
+            console.print(
+                Panel(
+                    Markdown(investor_briefing),
+                    title="Investor Briefing",
+                    subtitle="[dim]Internal context; may appear in generated reports[/dim]",
+                    border_style="yellow",
+                )
+            )
+
     return {
         "ticker": selected_ticker,
         "asset_type": asset_type.value,
         "analysis_date": analysis_date,
+        "investor_briefing": investor_briefing,
         "analysts": selected_analysts,
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
@@ -969,6 +1021,7 @@ def run_analysis(checkpoint: bool = False):
             asset_type=selections["asset_type"],
             past_context=past_context,
             instrument_context=instrument_context,
+            investor_briefing=selections.get("investor_briefing", ""),
         )
         # Pass callbacks to graph config for tool execution tracking
         # (LLM tracking is handled separately via LLM constructor)

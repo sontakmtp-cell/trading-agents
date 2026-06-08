@@ -375,7 +375,13 @@ class TradingAgentsGraph:
         identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity)
 
-    def propagate(self, company_name, trade_date, asset_type: str = "stock"):
+    def propagate(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        investor_briefing: str = "",
+    ):
         """Run the trading agents graph for a company on a specific date.
 
         ``asset_type`` selects between the stock pipeline (default) and the
@@ -409,14 +415,25 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date, asset_type=asset_type)
+            return self._run_graph(
+                company_name,
+                trade_date,
+                asset_type=asset_type,
+                investor_briefing=investor_briefing,
+            )
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
                 self._checkpointer_ctx = None
                 self.graph = self.workflow.compile()
 
-    def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
+    def _run_graph(
+        self,
+        company_name,
+        trade_date,
+        asset_type: str = "stock",
+        investor_briefing: str = "",
+    ):
         """Execute the graph and write the resulting state to disk and memory log."""
         # Initialize state — inject memory log context for PM and the
         # deterministically resolved instrument identity for all agents.
@@ -428,6 +445,7 @@ class TradingAgentsGraph:
             asset_type=asset_type,
             past_context=past_context,
             instrument_context=instrument_context,
+            investor_briefing=investor_briefing,
         )
         args = self.propagator.get_graph_args()
 
@@ -474,7 +492,12 @@ class TradingAgentsGraph:
         return final_state, self.process_signal(final_state["final_trade_decision"])
 
     def _log_state(self, trade_date, final_state):
-        """Log the final state to a JSON file."""
+        """Log the final state to a JSON file.
+
+        NOTE: raw investor_briefing is intentionally not logged as a separate key.
+        Agent-generated outputs may still include or summarize it because reports
+        are intended for internal circulation.
+        """
         self.log_states_dict[str(trade_date)] = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],

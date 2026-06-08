@@ -1,5 +1,7 @@
 """Tests for TradingMemoryLog — storage, deferred reflection, PM injection, legacy removal."""
 
+import json
+
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
@@ -10,6 +12,7 @@ from tradingagents.graph.reflection import Reflector
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.graph.propagation import Propagator
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
+from tradingagents.agents.utils.agent_utils import get_investor_briefing_from_state
 
 _SEP = TradingMemoryLog._SEPARATOR
 
@@ -58,11 +61,12 @@ def _price_df(prices):
     return pd.DataFrame({"Close": prices})
 
 
-def _make_pm_state(past_context=""):
+def _make_pm_state(past_context="", investor_briefing=""):
     """Minimal AgentState dict for portfolio_manager_node."""
     return {
         "company_of_interest": "NVDA",
         "past_context": past_context,
+        "investor_briefing": investor_briefing,
         "risk_debate_state": {
             "history": "Risk debate history.",
             "aggressive_history": "",
@@ -686,6 +690,71 @@ class TestPortfolioManagerInjection:
         state = propagator.create_initial_state("NVDA", "2026-01-10")
         assert state["past_context"] == ""
 
+    def test_investor_briefing_in_initial_state(self):
+        propagator = Propagator()
+        state = propagator.create_initial_state(
+            "NVDA",
+            "2026-01-10",
+            investor_briefing="Hold 500 shares, stop at 105.",
+        )
+        assert state["investor_briefing"] == "Hold 500 shares, stop at 105."
+
+    def test_investor_briefing_defaults_to_empty(self):
+        propagator = Propagator()
+        state = propagator.create_initial_state("NVDA", "2026-01-10")
+        assert state["investor_briefing"] == ""
+
+    def test_investor_briefing_helper_formats_only_when_present(self):
+        assert get_investor_briefing_from_state({"investor_briefing": "   "}) == ""
+        block = get_investor_briefing_from_state(
+            {"investor_briefing": "Target exit at $160."}
+        )
+        assert "INVESTOR BRIEFING" in block
+        assert "Target exit at $160." in block
+
+    def test_log_state_does_not_persist_raw_investor_briefing(self, tmp_path):
+        mock_graph = MagicMock(spec=TradingAgentsGraph)
+        mock_graph.config = {"results_dir": str(tmp_path)}
+        mock_graph.ticker = "NVDA"
+        mock_graph.log_states_dict = {}
+        final_state = {
+            "company_of_interest": "NVDA",
+            "trade_date": "2026-01-10",
+            "investor_briefing": "Raw private briefing.",
+            "market_report": "Market report.",
+            "sentiment_report": "Sentiment report.",
+            "news_report": "News report.",
+            "fundamentals_report": "Fundamentals report.",
+            "investment_debate_state": {
+                "bull_history": "",
+                "bear_history": "",
+                "history": "",
+                "current_response": "",
+                "judge_decision": "",
+            },
+            "trader_investment_plan": "Trader plan.",
+            "risk_debate_state": {
+                "aggressive_history": "",
+                "conservative_history": "",
+                "neutral_history": "",
+                "history": "",
+                "judge_decision": "",
+            },
+            "investment_plan": "Investment plan.",
+            "final_trade_decision": "Final decision.",
+        }
+
+        TradingAgentsGraph._log_state(mock_graph, "2026-01-10", final_state)
+
+        log_path = (
+            tmp_path
+            / "NVDA"
+            / "TradingAgentsStrategy_logs"
+            / "full_states_log_2026-01-10.json"
+        )
+        logged = json.loads(log_path.read_text(encoding="utf-8"))
+        assert "investor_briefing" not in logged
+
     # PM prompt
 
     def test_pm_prompt_includes_past_context(self):
@@ -705,6 +774,15 @@ class TestPortfolioManagerInjection:
         state = _make_pm_state(past_context="")
         pm_node(state)
         assert "Lessons from prior decisions" not in captured["prompt"]
+
+    def test_pm_prompt_includes_investor_briefing(self):
+        captured = {}
+        llm = _structured_pm_llm(captured)
+        pm_node = create_portfolio_manager(llm)
+        state = _make_pm_state(investor_briefing="Do not exceed 20% portfolio weight.")
+        pm_node(state)
+        assert "INVESTOR BRIEFING" in captured["prompt"]
+        assert "Do not exceed 20% portfolio weight." in captured["prompt"]
 
     def test_pm_returns_rendered_markdown_with_rating(self):
         """The structured PortfolioDecision is rendered to markdown that

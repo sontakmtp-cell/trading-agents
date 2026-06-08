@@ -21,6 +21,7 @@ def test_run_analysis_streaming_path_uses_memory_log(monkeypatch, tmp_path):
         "ticker": "NVDA",
         "analysis_date": "2026-01-10",
         "asset_type": "stock",
+        "investor_briefing": "Existing position: 500 shares.",
         "research_depth": 1,
         "shallow_thinker": "quick",
         "deep_thinker": "deep",
@@ -120,6 +121,7 @@ def test_run_analysis_streaming_path_uses_memory_log(monkeypatch, tmp_path):
     assert graph.resolved_pending == ["NVDA"]
     assert graph.memory_log.context_ticker == "NVDA"
     assert graph.propagator.initial_state_kwargs["past_context"] == "prior resolved context"
+    assert graph.propagator.initial_state_kwargs["investor_briefing"] == "Existing position: 500 shares."
     assert graph.memory_log.stored == [
         {
             "ticker": "NVDA",

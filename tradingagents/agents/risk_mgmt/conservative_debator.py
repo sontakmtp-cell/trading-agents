@@ -1,5 +1,6 @@
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
+    get_investor_briefing_from_state,
     get_language_instruction,
     get_report_output_instruction,
 )
@@ -19,6 +20,7 @@ def create_conservative_debator(llm):
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
         instrument_context = get_instrument_context_from_state(state)
+        investor_briefing = get_investor_briefing_from_state(state)
 
         trader_decision = state["trader_investment_plan"]
         round_number = risk_debate_state["count"] // 3 + 1
@@ -35,6 +37,7 @@ Social Media Sentiment Report: {sentiment_report}
 Latest World Affairs Report: {news_report}
 Company Fundamentals Report: {fundamentals_report}
 Here is the current conversation history: {history} Here is the last response from the aggressive analyst: {current_aggressive_response} Here is the last response from the neutral analyst: {current_neutral_response}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
+{investor_briefing}
 
 Engage by questioning their optimism and emphasizing the potential downsides they may have overlooked. Address each of their counterpoints to showcase why a conservative stance is ultimately the safest path for the firm's assets. Focus on debating and critiquing their arguments to demonstrate the strength of a low-risk strategy over their approaches.""" + get_report_output_instruction(round_number) + get_language_instruction()
 

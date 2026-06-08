@@ -1,5 +1,6 @@
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
+    get_investor_briefing_from_state,
     get_language_instruction,
     get_report_output_instruction,
 )
@@ -17,6 +18,7 @@ def create_bear_researcher(llm):
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
         instrument_context = get_instrument_context_from_state(state)
+        investor_briefing = get_investor_briefing_from_state(state)
         asset_type = state.get("asset_type", "stock")
         target_label = "stock" if asset_type == "stock" else "asset"
         fundamentals_label = (
@@ -45,6 +47,7 @@ Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bull argument: {current_response}
+{investor_briefing}
 Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the {target_label}.
 """ + get_report_output_instruction(round_number) + get_language_instruction()
 

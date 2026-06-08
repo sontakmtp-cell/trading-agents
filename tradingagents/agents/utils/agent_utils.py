@@ -182,6 +182,24 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     )
 
 
+def get_investor_briefing_from_state(state: Mapping[str, Any]) -> str:
+    """Return the investor briefing block for prompt injection.
+
+    Returns an empty string when no briefing was provided so agent prompts
+    remain unchanged in the default flow.
+    """
+    briefing = state.get("investor_briefing", "")
+    if not isinstance(briefing, str) or not briefing.strip():
+        return ""
+    return (
+        "\n\n---\n"
+        "**INVESTOR BRIEFING** (internal context supplied by the investor; "
+        "use it when relevant and it may be reflected in internal reports):\n"
+        f"{briefing}\n"
+        "---\n"
+    )
+
+
 def create_msg_delete():
     def delete_messages(state):
         """Clear messages and add a context-anchored placeholder.
