@@ -94,6 +94,8 @@ def get_analysis_date() -> str:
     from datetime import datetime
 
     def validate_date(date_str: str) -> bool:
+        if date_str.strip().lower() in ("back", "b", "<"):
+            return True
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
             return False
         try:
@@ -103,7 +105,7 @@ def get_analysis_date() -> str:
             return False
 
     date = questionary.text(
-        "Enter the analysis date (YYYY-MM-DD):",
+        "Enter the analysis date (YYYY-MM-DD) (or type 'back' to go back):",
         validate=lambda x: validate_date(x.strip())
         or "Please enter a valid date in YYYY-MM-DD format.",
         style=questionary.Style(
@@ -114,9 +116,8 @@ def get_analysis_date() -> str:
         ),
     ).ask()
 
-    if not date:
-        console.print("\n[red]No date provided. Exiting...[/red]")
-        exit(1)
+    if date is None or date.strip().lower() in ("back", "b", "<"):
+        return "__BACK__"
 
     return date.strip()
 
@@ -134,7 +135,7 @@ def select_analysts(asset_type: AssetType = AssetType.STOCK) -> List[AnalystType
             for display, value in ANALYST_ORDER
             if value in available_analysts
         ],
-        instruction="\n- Press Space to select/unselect analysts\n- Press 'a' to select/unselect all\n- Press Enter when done",
+        instruction="\n- Press Space to select/unselect analysts\n- Press 'a' to select/unselect all\n- Press Esc to go back\n- Press Enter when done",
         validate=lambda x: len(x) > 0 or "You must select at least one analyst.",
         style=questionary.Style(
             [
@@ -146,9 +147,8 @@ def select_analysts(asset_type: AssetType = AssetType.STOCK) -> List[AnalystType
         ),
     ).ask()
 
-    if not choices:
-        console.print("\n[red]No analysts selected. Exiting...[/red]")
-        exit(1)
+    if choices is None:
+        return "__BACK__"
 
     return choices
 
@@ -158,6 +158,7 @@ def select_research_depth() -> int:
 
     # Define research depth options with their corresponding values
     DEPTH_OPTIONS = [
+        ("<- Back to previous step", "__BACK__"),
         ("Shallow - Quick research, few debate and strategy discussion rounds", 1),
         ("Medium - Middle ground, moderate debate rounds and strategy discussion", 3),
         ("Deep - Comprehensive research, in depth debate and strategy discussion", 5),
@@ -179,8 +180,7 @@ def select_research_depth() -> int:
     ).ask()
 
     if choice is None:
-        console.print("\n[red]No research depth selected. Exiting...[/red]")
-        exit(1)
+        return "__BACK__"
 
     return choice
 
@@ -202,45 +202,53 @@ def select_openrouter_model() -> str:
     """Select an OpenRouter model from the newest available, or enter a custom ID."""
     models = _fetch_openrouter_models()
 
-    choices = [
-        questionary.Choice("DeepSeek V4 Pro (deepseek/deepseek-v4-pro)", value="deepseek/deepseek-v4-pro"),
-        questionary.Choice("DeepSeek V4 Flash (deepseek/deepseek-v4-flash)", value="deepseek/deepseek-v4-flash"),
-    ]
-    added = 0
-    for name, mid in models:
-        if mid not in ("deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash"):
-            choices.append(questionary.Choice(name, value=mid))
-            added += 1
-            if added >= 5:
-                break
-    choices.append(questionary.Choice("Custom model ID", value="custom"))
+    while True:
+        choices = [
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
+            questionary.Choice("DeepSeek V4 Pro (deepseek/deepseek-v4-pro)", value="deepseek/deepseek-v4-pro"),
+            questionary.Choice("DeepSeek V4 Flash (deepseek/deepseek-v4-flash)", value="deepseek/deepseek-v4-flash"),
+        ]
+        added = 0
+        for name, mid in models:
+            if mid not in ("deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-flash"):
+                choices.append(questionary.Choice(name, value=mid))
+                added += 1
+                if added >= 5:
+                    break
+        choices.append(questionary.Choice("Custom model ID", value="custom"))
 
-    choice = questionary.select(
-        "Select OpenRouter Model (latest available):",
-        choices=choices,
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style([
-            ("selected", "fg:magenta noinherit"),
-            ("highlighted", "fg:magenta noinherit"),
-            ("pointer", "fg:magenta noinherit"),
-        ]),
-    ).ask()
+        choice = questionary.select(
+            "Select OpenRouter Model (latest available):",
+            choices=choices,
+            instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+            style=questionary.Style([
+                ("selected", "fg:magenta noinherit"),
+                ("highlighted", "fg:magenta noinherit"),
+                ("pointer", "fg:magenta noinherit"),
+            ]),
+        ).ask()
 
-    if choice is None or choice == "custom":
-        return questionary.text(
-            "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-        ).ask().strip()
+        if choice is None or choice == "__BACK__":
+            return "__BACK__"
 
-    return choice
+        if choice == "custom":
+            res = _prompt_custom_model_id()
+            if res == "__BACK__":
+                continue
+            return res
+
+        return choice
 
 
 def _prompt_custom_model_id() -> str:
     """Prompt user to type a custom model ID."""
-    return questionary.text(
-        "Enter model ID:",
-        validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
-    ).ask().strip()
+    res = questionary.text(
+        "Enter model ID (or type 'back' to go back):",
+        validate=lambda x: len(x.strip()) > 0 or x.strip().lower() in ("back", "b", "<") or "Please enter a model ID.",
+    ).ask()
+    if res is None or res.strip().lower() in ("back", "b", "<"):
+        return "__BACK__"
+    return res.strip()
 
 
 def _select_model(provider: str, mode: str) -> str:
@@ -248,36 +256,46 @@ def _select_model(provider: str, mode: str) -> str:
     if provider.lower() == "openrouter":
         return select_openrouter_model()
 
-    if provider.lower() == "azure":
-        return questionary.text(
-            f"Enter Azure deployment name ({mode}-thinking):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
-        ).ask().strip()
+    while True:
+        if provider.lower() == "azure":
+            res = questionary.text(
+                f"Enter Azure deployment name ({mode}-thinking) (or type 'back' to go back):",
+                validate=lambda x: len(x.strip()) > 0 or x.strip().lower() in ("back", "b", "<") or "Please enter a deployment name.",
+            ).ask()
+            if res is None or res.strip().lower() in ("back", "b", "<"):
+                return "__BACK__"
+            return res.strip()
 
-    choice = questionary.select(
-        f"Select Your [{mode.title()}-Thinking LLM Engine]:",
-        choices=[
+        choices = [
+            questionary.Choice("<- Back to previous step", value="__BACK__")
+        ] + [
             questionary.Choice(display, value=value)
             for display, value in get_model_options(provider, mode)
-        ],
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style(
-            [
-                ("selected", "fg:magenta noinherit"),
-                ("highlighted", "fg:magenta noinherit"),
-                ("pointer", "fg:magenta noinherit"),
-            ]
-        ),
-    ).ask()
+        ]
 
-    if choice is None:
-        console.print(f"\n[red]No {mode} thinking llm engine selected. Exiting...[/red]")
-        exit(1)
+        choice = questionary.select(
+            f"Select Your [{mode.title()}-Thinking LLM Engine]:",
+            choices=choices,
+            instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+            style=questionary.Style(
+                [
+                    ("selected", "fg:magenta noinherit"),
+                    ("highlighted", "fg:magenta noinherit"),
+                    ("pointer", "fg:magenta noinherit"),
+                ]
+            ),
+        ).ask()
 
-    if choice == "custom":
-        return _prompt_custom_model_id()
+        if choice is None or choice == "__BACK__":
+            return "__BACK__"
 
-    return choice
+        if choice == "custom":
+            res = _prompt_custom_model_id()
+            if res == "__BACK__":
+                continue
+            return res
+
+        return choice
 
 
 def select_shallow_thinking_agent(provider) -> str:
@@ -324,13 +342,15 @@ def provider_default_url(provider_key: str) -> str | None:
     return None
 
 
-def select_llm_provider() -> tuple[str, str | None]:
+def select_llm_provider() -> tuple[str, str | None] | str:
     """Select the LLM provider and its API endpoint."""
     PROVIDERS = _llm_provider_table()
 
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
+            questionary.Choice("<- Back to previous step", value="__BACK__")
+        ] + [
             questionary.Choice(display, value=(provider_key, url))
             for display, provider_key, url in PROVIDERS
         ],
@@ -344,9 +364,8 @@ def select_llm_provider() -> tuple[str, str | None]:
         ),
     ).ask()
     
-    if choice is None:
-        console.print("\n[red]No LLM provider selected. Exiting...[/red]")
-        exit(1)
+    if choice is None or choice == "__BACK__":
+        return "__BACK__"
 
     provider, url = choice
     return provider, url
@@ -355,11 +374,12 @@ def select_llm_provider() -> tuple[str, str | None]:
 def ask_openai_reasoning_effort() -> str:
     """Ask for OpenAI reasoning effort level."""
     choices = [
+        questionary.Choice("<- Back to previous step", "__BACK__"),
         questionary.Choice("Medium (Default)", "medium"),
         questionary.Choice("High (More thorough)", "high"),
         questionary.Choice("Low (Faster)", "low"),
     ]
-    return questionary.select(
+    choice = questionary.select(
         "Select Reasoning Effort:",
         choices=choices,
         style=questionary.Style([
@@ -368,6 +388,9 @@ def ask_openai_reasoning_effort() -> str:
             ("pointer", "fg:cyan noinherit"),
         ]),
     ).ask()
+    if choice is None:
+        return "__BACK__"
+    return choice
 
 
 def ask_anthropic_effort() -> str | None:
@@ -377,9 +400,10 @@ def ask_anthropic_effort() -> str | None:
     models. The API also accepts "max"; we expose low/medium/high as the
     common selection range.
     """
-    return questionary.select(
+    choice = questionary.select(
         "Select Effort Level:",
         choices=[
+            questionary.Choice("<- Back to previous step", "__BACK__"),
             questionary.Choice("High (recommended)", "high"),
             questionary.Choice("Medium (balanced)", "medium"),
             questionary.Choice("Low (faster, cheaper)", "low"),
@@ -390,6 +414,9 @@ def ask_anthropic_effort() -> str | None:
             ("pointer", "fg:cyan noinherit"),
         ]),
     ).ask()
+    if choice is None:
+        return "__BACK__"
+    return choice
 
 
 def ask_gemini_thinking_config() -> str | None:
@@ -398,9 +425,10 @@ def ask_gemini_thinking_config() -> str | None:
     Returns thinking_level: "high" or "minimal".
     Client maps to appropriate API param based on model series.
     """
-    return questionary.select(
+    choice = questionary.select(
         "Select Thinking Mode:",
         choices=[
+            questionary.Choice("<- Back to previous step", "__BACK__"),
             questionary.Choice("Enable Thinking (recommended)", "high"),
             questionary.Choice("Minimal/Disable Thinking", "minimal"),
         ],
@@ -410,17 +438,21 @@ def ask_gemini_thinking_config() -> str | None:
             ("pointer", "fg:green noinherit"),
         ]),
     ).ask()
+    if choice is None:
+        return "__BACK__"
+    return choice
 
 
-def ask_glm_region() -> tuple[str, str]:
+def ask_glm_region() -> tuple[str, str] | str:
     """Ask which GLM platform (Z.AI international vs BigModel China) to use.
 
     Zhipu serves the same GLM models under two brands with separate
     accounts; keys aren't interchangeable. Returns (provider_key, backend_url).
     """
-    return questionary.select(
+    choice = questionary.select(
         "Select GLM platform:",
         choices=[
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice(
                 "Z.AI — api.z.ai (international, uses ZHIPU_API_KEY)",
                 value=("glm", "https://api.z.ai/api/paas/v4/"),
@@ -436,18 +468,22 @@ def ask_glm_region() -> tuple[str, str]:
             ("pointer", "fg:cyan noinherit"),
         ]),
     ).ask()
+    if choice is None:
+        return "__BACK__"
+    return choice
 
 
-def ask_qwen_region() -> tuple[str, str]:
+def ask_qwen_region() -> tuple[str, str] | str:
     """Ask which Qwen region (international vs China) to use.
 
     Alibaba DashScope exposes two endpoints with separate accounts —
     a key from one region does NOT authenticate against the other
     (fixes #758). Returns (provider_key, backend_url).
     """
-    return questionary.select(
+    choice = questionary.select(
         "Select Qwen region:",
         choices=[
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice(
                 "International — dashscope-intl.aliyuncs.com (uses DASHSCOPE_API_KEY)",
                 value=("qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
@@ -463,18 +499,22 @@ def ask_qwen_region() -> tuple[str, str]:
             ("pointer", "fg:cyan noinherit"),
         ]),
     ).ask()
+    if choice is None:
+        return "__BACK__"
+    return choice
 
 
-def ask_minimax_region() -> tuple[str, str]:
+def ask_minimax_region() -> tuple[str, str] | str:
     """Ask which MiniMax region (global vs China) to use.
 
     MiniMax exposes two endpoints with separate accounts — a key from
     one region does NOT authenticate against the other. Returns
     (provider_key, backend_url).
     """
-    return questionary.select(
+    choice = questionary.select(
         "Select MiniMax region:",
         choices=[
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice(
                 "Global — api.minimax.io (uses MINIMAX_API_KEY)",
                 value=("minimax", "https://api.minimax.io/v1"),
@@ -490,6 +530,9 @@ def ask_minimax_region() -> tuple[str, str]:
             ("pointer", "fg:cyan noinherit"),
         ]),
     ).ask()
+    if choice is None:
+        return "__BACK__"
+    return choice
 
 
 def confirm_ollama_endpoint(url: str) -> None:
@@ -497,7 +540,7 @@ def confirm_ollama_endpoint(url: str) -> None:
 
     Surfaces three things the user benefits from seeing before model
     selection: which URL we'll actually hit, where it came from
-    (\`OLLAMA_BASE_URL\` vs default), and a soft warning if the URL is
+    (`OLLAMA_BASE_URL` vs default), and a soft warning if the URL is
     missing the scheme/port that ollama-serve expects. The warning is
     advisory only — we don't reject malformed input, since the user may
     be doing something deliberately unusual (e.g. a reverse-proxy path).
@@ -545,12 +588,14 @@ def ensure_api_key(provider: str) -> Optional[str]:
         f"\n[yellow]{env_var} is not set in your environment.[/yellow]"
     )
     key = questionary.password(
-        f"Paste your {env_var} (will be saved to .env):",
+        f"Paste your {env_var} (will be saved to .env) (or press Esc to cancel):",
         style=questionary.Style([
             ("text", "fg:cyan"),
             ("highlighted", "noinherit"),
         ]),
     ).ask()
+    if key is None:
+        return None
     if not key:
         console.print(
             f"[red]Skipped. API calls will fail until {env_var} is set.[/red]"
@@ -570,6 +615,7 @@ def ask_output_language() -> str:
     choice = questionary.select(
         "Select Output Language:",
         choices=[
+            questionary.Choice("<- Back to previous step", "__BACK__"),
             questionary.Choice("English (default)", "English"),
             questionary.Choice("Chinese (中文)", "Chinese"),
             questionary.Choice("Japanese (日本語)", "Japanese"),
@@ -591,10 +637,16 @@ def ask_output_language() -> str:
         ]),
     ).ask()
 
+    if choice is None or choice == "__BACK__":
+        return "__BACK__"
+
     if choice == "custom":
-        return questionary.text(
-            "Enter language name (e.g. Turkish, Vietnamese, Thai, Indonesian):",
-            validate=lambda x: len(x.strip()) > 0 or "Please enter a language name.",
-        ).ask().strip()
+        res = questionary.text(
+            "Enter language name (e.g. Turkish, Vietnamese, Thai, Indonesian) (or type 'back' to go back):",
+            validate=lambda x: len(x.strip()) > 0 or x.strip().lower() in ("back", "b", "<") or "Please enter a language name.",
+        ).ask()
+        if res is None or res.strip().lower() in ("back", "b", "<"):
+            return "__BACK__"
+        return res.strip()
 
     return choice

@@ -30,6 +30,14 @@ from tradingagents.graph.analyst_execution import (
     sync_analyst_tracker_from_chunk,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.graph.checkpointer import (
+    checkpoint_step,
+    clear_checkpoint,
+    get_checkpointer,
+    list_resumable_checkpoints,
+    record_checkpoint_run,
+    thread_id,
+)
 from tradingagents.report_formatting import render_complete_report, save_report_documents
 from cli.models import AnalystType
 from cli.utils import *
@@ -436,7 +444,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     layout["footer"].update(Panel(stats_table, border_style="grey50"))
 
 
-def get_user_selections():
+def get_user_selections(checkpoint_enabled: bool = False):
     """Get all user selections before starting the analysis display."""
     # Display ASCII art welcome message
     with open(Path(__file__).parent / "static" / "welcome.txt", "r", encoding="utf-8") as f:
@@ -475,213 +483,455 @@ def get_user_selections():
             box_content += f"\n[dim]Default: {default}[/dim]"
         return Panel(box_content, border_style="blue", padding=(1, 2))
 
-    # Step 1: Ticker symbol
-    console.print(
-        create_question_box(
-            "Step 1: Ticker Symbol",
-            "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTCUSDT)",
-            "SPY",
-        )
-    )
-    selected_ticker = get_ticker()
-    asset_type = detect_asset_type(selected_ticker)
-    # Only announce when it's not the default stock path, to avoid printing
-    # "stock" on every run.
-    if asset_type.value != "stock":
-        console.print(
-            f"[green]Detected asset type:[/green] {asset_type.value}"
-        )
-
-    # Step 2: Analysis date
     default_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    console.print(
-        create_question_box(
-            "Step 2: Analysis Date",
-            "Enter the analysis date (YYYY-MM-DD)",
-            default_date,
-        )
-    )
-    analysis_date = get_analysis_date()
-
-    # Step 3: Output language (skipped when set via TRADINGAGENTS_OUTPUT_LANGUAGE)
-    if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"):
-        output_language = DEFAULT_CONFIG["output_language"]
-        console.print(
-            f"[green]✓ Output language from environment:[/green] {output_language}"
-        )
-    else:
-        console.print(
-            create_question_box(
-                "Step 3: Output Language",
-                "Select the language for analyst reports and final decision"
+    resume_checkpoint = None
+    resumable = []
+    if checkpoint_enabled:
+        resumable = list_resumable_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+    if resumable:
+        choices = [
+            questionary.Choice(
+                f"Resume {item['ticker']} on {item['date']} (step {item.get('step', '?')})",
+                value=item,
             )
-        )
-        output_language = ask_output_language()
-
-    # Step 4: Select analysts
-    console.print(
-        create_question_box(
-            "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
-        )
-    )
-    selected_analysts = select_analysts(asset_type)
-    console.print(
-        f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
-    )
-
-    # Step 5: Research depth
-    console.print(
-        create_question_box(
-            "Step 5: Research Depth", "Select your research depth level"
-        )
-    )
-    selected_research_depth = select_research_depth()
-
-    # Step 6: LLM Provider (skipped when set via TRADINGAGENTS_LLM_PROVIDER).
-    # The backend URL comes from TRADINGAGENTS_LLM_BACKEND_URL when set,
-    # otherwise the provider's default endpoint — the same value the menu
-    # would have picked.
-    provider_from_env = bool(os.environ.get("TRADINGAGENTS_LLM_PROVIDER"))
-    if provider_from_env:
-        selected_llm_provider = DEFAULT_CONFIG["llm_provider"].lower()
-        backend_url = DEFAULT_CONFIG["backend_url"] or provider_default_url(selected_llm_provider)
-        console.print(f"[green]✓ LLM provider from environment:[/green] {selected_llm_provider}")
-        console.print(f"[green]✓ Backend URL:[/green] {backend_url}")
-        # Still confirm/persist the API key so the run doesn't fail later.
-        ensure_api_key(selected_llm_provider)
-    else:
-        console.print(
-            create_question_box(
-                "Step 6: LLM Provider", "Select your LLM provider"
-            )
-        )
-        selected_llm_provider, backend_url = select_llm_provider()
-
-        # Providers with regional endpoints prompt for the region as a secondary
-        # step so the main dropdown stays clean (mainland China and international
-        # accounts cannot share API keys).
-        if selected_llm_provider == "qwen":
-            selected_llm_provider, backend_url = ask_qwen_region()
-        elif selected_llm_provider == "minimax":
-            selected_llm_provider, backend_url = ask_minimax_region()
-        elif selected_llm_provider == "glm":
-            selected_llm_provider, backend_url = ask_glm_region()
-
-        # For Ollama, surface the resolved endpoint (OLLAMA_BASE_URL vs default)
-        # before model selection so it's obvious where we're connecting.
-        if selected_llm_provider == "ollama":
-            confirm_ollama_endpoint(backend_url)
-
-        # Confirm the provider's API key is present; prompt the user to paste
-        # one and persist it to .env if it's missing, so the analysis run
-        # doesn't fail later at the first API call.
-        ensure_api_key(selected_llm_provider)
-
-    # Step 7: Thinking agents (skipped when either model is set via environment)
-    if os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM") or os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM"):
-        selected_shallow_thinker = DEFAULT_CONFIG["quick_think_llm"]
-        selected_deep_thinker = DEFAULT_CONFIG["deep_think_llm"]
-        console.print(
-            f"[green]✓ Thinking agents from environment:[/green] "
-            f"quick={selected_shallow_thinker}, deep={selected_deep_thinker}"
-        )
-    else:
-        console.print(
-            create_question_box(
-                "Step 7: Thinking Agents", "Select your thinking agents for analysis"
-            )
-        )
-        selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
-        selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
-
-    # Step 8: Provider-specific thinking configuration
-    thinking_level = None
-    reasoning_effort = None
-    anthropic_effort = None
-
-    provider_lower = selected_llm_provider.lower()
-    # When the provider is configured via environment we keep the run fully
-    # non-interactive and use the config defaults (None = each provider's own
-    # default reasoning/thinking behavior) instead of prompting.
-    if provider_from_env:
-        thinking_level = DEFAULT_CONFIG["google_thinking_level"]
-        reasoning_effort = DEFAULT_CONFIG["openai_reasoning_effort"]
-        anthropic_effort = DEFAULT_CONFIG["anthropic_effort"]
-    elif provider_lower == "google":
-        console.print(
-            create_question_box(
-                "Step 8: Thinking Mode",
-                "Configure Gemini thinking mode"
-            )
-        )
-        thinking_level = ask_gemini_thinking_config()
-    elif provider_lower == "openai":
-        console.print(
-            create_question_box(
-                "Step 8: Reasoning Effort",
-                "Configure OpenAI reasoning effort level"
-            )
-        )
-        reasoning_effort = ask_openai_reasoning_effort()
-    elif provider_lower == "anthropic":
-        console.print(
-            create_question_box(
-                "Step 8: Effort Level",
-                "Configure Claude effort level"
-            )
-        )
-        anthropic_effort = ask_anthropic_effort()
-
-    # Step 9: Optional investor briefing
-    investor_briefing = ""
-    add_briefing = questionary.confirm(
-        "Add investor briefing? (positions, thesis, constraints)",
-        default=False,
-    ).ask()
-
-    if add_briefing:
-        briefing_method = questionary.select(
-            "How would you like to provide the briefing?",
-            choices=[
-                "Type directly in terminal",
-                "Load from file",
-            ],
+            for item in resumable
+        ]
+        choices.append(questionary.Choice("Start a new analysis", value=None))
+        resume_checkpoint = questionary.select(
+            "Unfinished checkpoint found. What do you want to do?",
+            choices=choices,
+            instruction="\n- Choose a checkpoint to continue, or start fresh",
         ).ask()
-
-        if briefing_method == "Load from file":
-            briefing_path = questionary.path(
-                "Path to briefing file (.md or .txt):",
-            ).ask()
-            with open(briefing_path, "r", encoding="utf-8") as f:
-                investor_briefing = f.read().strip()
-        else:
-            console.print(
-                "[dim]Enter your briefing below. "
-                "Press Enter twice on an empty line to finish.[/dim]"
-            )
-            lines = []
-            empty_count = 0
-            while True:
-                line = input()
-                if line == "":
-                    empty_count += 1
-                    if empty_count >= 2:
-                        break
-                    lines.append("")
-                else:
-                    empty_count = 0
-                    lines.append(line)
-            investor_briefing = "\n".join(lines).strip()
-
-        if investor_briefing:
+        if resume_checkpoint:
+            analysts = resume_checkpoint.get("selected_analysts") or ["market"]
+            analyst_labels = ", ".join(analysts)
             console.print(
                 Panel(
-                    Markdown(investor_briefing),
-                    title="Investor Briefing",
-                    subtitle="[dim]Internal context; may appear in generated reports[/dim]",
+                    "\n".join(
+                        [
+                            f"Ticker: {resume_checkpoint['ticker']}",
+                            f"Date: {resume_checkpoint['date']}",
+                            f"Saved step: {resume_checkpoint.get('step', '?')}",
+                            f"Analysts: {analyst_labels}",
+                            "Next: choose provider/model; you may switch away from the rate-limited provider.",
+                        ]
+                    ),
+                    title="Resume Checkpoint",
                     border_style="yellow",
                 )
             )
+
+    # State machine variables
+    selected_ticker = resume_checkpoint["ticker"] if resume_checkpoint else "SPY"
+    asset_type = (
+        detect_asset_type(selected_ticker)
+        if resume_checkpoint
+        else AssetType.STOCK
+    )
+    analysis_date = resume_checkpoint["date"] if resume_checkpoint else default_date
+    output_language = (
+        resume_checkpoint.get("output_language", "English")
+        if resume_checkpoint
+        else "English"
+    )
+    resume_analysts = resume_checkpoint.get("selected_analysts") if resume_checkpoint else []
+    if resume_checkpoint and not resume_analysts:
+        resume_analysts = ["market"]
+    selected_analysts = [
+        AnalystType(a)
+        for a in resume_analysts
+    ] if resume_checkpoint else []
+    selected_research_depth = resume_checkpoint.get("research_depth", 1) if resume_checkpoint else 3
+    selected_llm_provider = "google"
+    backend_url = None
+    selected_shallow_thinker = None
+    selected_deep_thinker = None
+    thinking_level = None
+    reasoning_effort = None
+    anthropic_effort = None
+    investor_briefing = ""
+
+    env_configured_run = (
+        bool(os.environ.get("TRADINGAGENTS_LLM_PROVIDER"))
+        and bool(os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"))
+        and (
+            bool(os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM"))
+            or bool(os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM"))
+        )
+    )
+
+    if resume_checkpoint:
+        active_steps = [
+            "PROVIDER",
+            "THINKING_AGENTS",
+            "PROVIDER_CONFIG",
+        ]
+    else:
+        active_steps = [
+            "TICKER",
+            "DATE",
+            "LANGUAGE",
+            "ANALYSTS",
+            "DEPTH",
+            "PROVIDER",
+            "THINKING_AGENTS",
+            "PROVIDER_CONFIG",
+        ]
+        if not env_configured_run:
+            active_steps.append("BRIEFING")
+
+    current_idx = 0
+    direction = 1  # 1 for forward, -1 for backward
+
+    while current_idx < len(active_steps):
+        step_name = active_steps[current_idx]
+
+        if step_name == "TICKER":
+            console.print(
+                create_question_box(
+                    "Step 1: Ticker Symbol",
+                    "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTCUSDT)",
+                    "SPY",
+                )
+            )
+            selected_ticker = get_ticker()
+            if not selected_ticker or selected_ticker == "__BACK__":
+                console.print("\n[red]No ticker symbol provided. Exiting...[/red]")
+                exit(1)
+            asset_type = detect_asset_type(selected_ticker)
+            if asset_type.value != "stock":
+                console.print(
+                    f"[green]Detected asset type:[/green] {asset_type.value}"
+                )
+            direction = 1
+            current_idx += direction
+
+        elif step_name == "DATE":
+            console.print(
+                create_question_box(
+                    "Step 2: Analysis Date",
+                    "Enter the analysis date (YYYY-MM-DD)",
+                    default_date,
+                )
+            )
+            res = get_analysis_date()
+            if res == "__BACK__":
+                direction = -1
+                current_idx += direction
+                continue
+            analysis_date = res
+            direction = 1
+            current_idx += direction
+
+        elif step_name == "LANGUAGE":
+            if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"):
+                output_language = DEFAULT_CONFIG["output_language"]
+                console.print(
+                    f"[green]✓ Output language from environment:[/green] {output_language}"
+                )
+                current_idx += direction
+                continue
+
+            console.print(
+                create_question_box(
+                    "Step 3: Output Language",
+                    "Select the language for analyst reports and final decision"
+                )
+            )
+            res = ask_output_language()
+            if res == "__BACK__":
+                direction = -1
+                current_idx += direction
+                continue
+            output_language = res
+            direction = 1
+            current_idx += direction
+
+        elif step_name == "ANALYSTS":
+            console.print(
+                create_question_box(
+                    "Step 4: Analysts Team", "Select your LLM analyst agents for the analysis"
+                )
+            )
+            res = select_analysts(asset_type)
+            if res == "__BACK__":
+                direction = -1
+                current_idx += direction
+                continue
+            selected_analysts = res
+            console.print(
+                f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
+            )
+            direction = 1
+            current_idx += direction
+
+        elif step_name == "DEPTH":
+            console.print(
+                create_question_box(
+                    "Step 5: Research Depth", "Select your research depth level"
+                )
+            )
+            res = select_research_depth()
+            if res == "__BACK__":
+                direction = -1
+                current_idx += direction
+                continue
+            selected_research_depth = res
+            direction = 1
+            current_idx += direction
+
+        elif step_name == "PROVIDER":
+            provider_from_env = bool(os.environ.get("TRADINGAGENTS_LLM_PROVIDER")) and not resume_checkpoint
+            if provider_from_env:
+                selected_llm_provider = DEFAULT_CONFIG["llm_provider"].lower()
+                backend_url = DEFAULT_CONFIG["backend_url"] or provider_default_url(selected_llm_provider)
+                console.print(f"[green]✓ LLM provider from environment:[/green] {selected_llm_provider}")
+                console.print(f"[green]✓ Backend URL:[/green] {backend_url}")
+                ensure_api_key(selected_llm_provider)
+                current_idx += direction
+                continue
+
+            provider_ok = False
+            while not provider_ok:
+                console.print(
+                    create_question_box(
+                        "Step 6: LLM Provider", "Select your LLM provider"
+                    )
+                )
+                res = select_llm_provider()
+                if res == "__BACK__":
+                    direction = -1
+                    break
+
+                prov, url = res
+
+                region_back = False
+                if prov == "qwen":
+                    res_region = ask_qwen_region()
+                    if res_region == "__BACK__":
+                        region_back = True
+                    else:
+                        prov, url = res_region
+                elif prov == "minimax":
+                    res_region = ask_minimax_region()
+                    if res_region == "__BACK__":
+                        region_back = True
+                    else:
+                        prov, url = res_region
+                elif prov == "glm":
+                    res_region = ask_glm_region()
+                    if res_region == "__BACK__":
+                        region_back = True
+                    else:
+                        prov, url = res_region
+                elif prov == "ollama":
+                    confirm_ollama_endpoint(url)
+
+                if region_back:
+                    continue
+
+                api_key = ensure_api_key(prov)
+                api_key_env = get_api_key_env(prov)
+                if api_key is None and api_key_env and not os.environ.get(api_key_env):
+                    continue
+
+                selected_llm_provider = prov
+                backend_url = url
+                provider_ok = True
+                direction = 1
+
+            if not provider_ok:
+                current_idx += direction
+                continue
+
+            current_idx += direction
+
+        elif step_name == "THINKING_AGENTS":
+            if (
+                not resume_checkpoint
+                and (
+                    os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM")
+                    or os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM")
+                )
+            ):
+                selected_shallow_thinker = DEFAULT_CONFIG["quick_think_llm"]
+                selected_deep_thinker = DEFAULT_CONFIG["deep_think_llm"]
+                console.print(
+                    f"[green]✓ Thinking agents from environment:[/green] "
+                    f"quick={selected_shallow_thinker}, deep={selected_deep_thinker}"
+                )
+                current_idx += direction
+                continue
+
+            agents_ok = False
+            while not agents_ok:
+                console.print(
+                    create_question_box(
+                        "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+                    )
+                )
+                res_shallow = select_shallow_thinking_agent(selected_llm_provider)
+                if res_shallow == "__BACK__":
+                    direction = -1
+                    break
+
+                res_deep = select_deep_thinking_agent(selected_llm_provider)
+                if res_deep == "__BACK__":
+                    continue
+
+                selected_shallow_thinker = res_shallow
+                selected_deep_thinker = res_deep
+                agents_ok = True
+                direction = 1
+
+            if not agents_ok:
+                current_idx += direction
+                continue
+
+            current_idx += direction
+
+        elif step_name == "PROVIDER_CONFIG":
+            provider_from_env = bool(os.environ.get("TRADINGAGENTS_LLM_PROVIDER")) and not resume_checkpoint
+            if provider_from_env:
+                thinking_level = DEFAULT_CONFIG["google_thinking_level"]
+                reasoning_effort = DEFAULT_CONFIG["openai_reasoning_effort"]
+                anthropic_effort = DEFAULT_CONFIG["anthropic_effort"]
+                current_idx += direction
+                continue
+
+            provider_lower = selected_llm_provider.lower()
+            if provider_lower == "google":
+                console.print(
+                    create_question_box(
+                        "Step 8: Thinking Mode",
+                        "Configure Gemini thinking mode"
+                    )
+                )
+                res = ask_gemini_thinking_config()
+                if res == "__BACK__":
+                    direction = -1
+                    current_idx += direction
+                    continue
+                thinking_level = res
+                direction = 1
+            elif provider_lower == "openai":
+                console.print(
+                    create_question_box(
+                        "Step 8: Reasoning Effort",
+                        "Configure OpenAI reasoning effort level"
+                    )
+                )
+                res = ask_openai_reasoning_effort()
+                if res == "__BACK__":
+                    direction = -1
+                    current_idx += direction
+                    continue
+                reasoning_effort = res
+                direction = 1
+            elif provider_lower == "anthropic":
+                console.print(
+                    create_question_box(
+                        "Step 8: Effort Level",
+                        "Configure Claude effort level"
+                    )
+                )
+                res = ask_anthropic_effort()
+                if res == "__BACK__":
+                    direction = -1
+                    current_idx += direction
+                    continue
+                anthropic_effort = res
+                direction = 1
+            else:
+                current_idx += direction
+                continue
+
+            current_idx += direction
+
+        elif step_name == "BRIEFING":
+            add_briefing = questionary.confirm(
+                "Add investor briefing? (positions, thesis, constraints)",
+                default=False,
+            ).ask()
+
+            if add_briefing is None:
+                direction = -1
+                current_idx += direction
+                continue
+
+            if add_briefing:
+                briefing_method = questionary.select(
+                    "How would you like to provide the briefing?",
+                    choices=[
+                        questionary.Choice("<- Back to previous step", value="__BACK__"),
+                        "Type directly in terminal",
+                        "Load from file",
+                    ],
+                ).ask()
+
+                if briefing_method is None or briefing_method == "__BACK__":
+                    direction = -1
+                    current_idx += direction
+                    continue
+
+                if briefing_method == "Load from file":
+                    briefing_path = questionary.path(
+                        "Path to briefing file (.md or .txt):",
+                    ).ask()
+                    if briefing_path is None or briefing_path.strip().lower() in ("back", "b", "<"):
+                        direction = -1
+                        current_idx += direction
+                        continue
+
+                    try:
+                        with open(briefing_path, "r", encoding="utf-8") as f:
+                            investor_briefing = f.read().strip()
+                    except Exception as e:
+                        console.print(f"[red]Error loading file: {e}[/red]")
+                        continue
+                else:
+                    console.print(
+                        "[dim]Enter your briefing below. "
+                        "Press Enter twice on an empty line to finish (or type 'back' on a line by itself to go back).[/dim]"
+                    )
+                    lines = []
+                    empty_count = 0
+                    user_cancelled = False
+                    while True:
+                        line = input()
+                        if line.strip().lower() == "back":
+                            user_cancelled = True
+                            break
+                        if line == "":
+                            empty_count += 1
+                            if empty_count >= 2:
+                                break
+                            lines.append("")
+                        else:
+                            empty_count = 0
+                            lines.append(line)
+
+                    if user_cancelled:
+                        direction = -1
+                        current_idx += direction
+                        continue
+
+                    investor_briefing = "\n".join(lines).strip()
+            else:
+                investor_briefing = ""
+
+            if investor_briefing:
+                console.print(
+                    Panel(
+                        Markdown(investor_briefing),
+                        title="Investor Briefing",
+                        subtitle="[dim]Internal context; may appear in generated reports[/dim]",
+                        border_style="yellow",
+                    )
+                )
+
+            direction = 1
+            current_idx += direction
 
     return {
         "ticker": selected_ticker,
@@ -698,6 +948,7 @@ def get_user_selections():
         "openai_reasoning_effort": reasoning_effort,
         "anthropic_effort": anthropic_effort,
         "output_language": output_language,
+        "resume_checkpoint": bool(resume_checkpoint),
     }
 
 
@@ -705,8 +956,10 @@ def get_analysis_date():
     """Get the analysis date from user input."""
     while True:
         date_str = typer.prompt(
-            "", default=datetime.datetime.now().strftime("%Y-%m-%d")
+            "Enter the analysis date (YYYY-MM-DD) (or type 'back' to go back)", default=datetime.datetime.now().strftime("%Y-%m-%d")
         )
+        if date_str.strip().lower() in ("back", "b", "<"):
+            return "__BACK__"
         try:
             # Validate date format and ensure it's not in the future
             analysis_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
@@ -875,9 +1128,49 @@ def format_tool_args(args, max_length=80) -> str:
         return result[:max_length - 3] + "..."
     return result
 
+
+def _stream_with_optional_checkpoint(
+    graph,
+    init_agent_state,
+    args,
+    *,
+    enabled: bool,
+    ticker: str,
+    analysis_date: str,
+):
+    """Stream the CLI graph, resuming completed nodes when enabled."""
+    if not enabled:
+        yield from graph.graph.stream(init_agent_state, **args)
+        return
+
+    with get_checkpointer(graph.config["data_cache_dir"], ticker) as saver:
+        checkpointed_graph = graph.workflow.compile(checkpointer=saver)
+        step = checkpoint_step(graph.config["data_cache_dir"], ticker, analysis_date)
+        stream_input = None if step is not None else init_agent_state
+        args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = (
+            thread_id(ticker, analysis_date)
+        )
+        if step is not None:
+            console.print(
+                f"[yellow]Resuming saved analysis from checkpoint step {step}.[/yellow]"
+            )
+        yield from checkpointed_graph.stream(stream_input, **args)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Return True for provider HTTP 429/rate-limit failures."""
+    status_code = getattr(exc, "status_code", None)
+    if status_code == 429:
+        return True
+    response = getattr(exc, "response", None)
+    if getattr(response, "status_code", None) == 429:
+        return True
+    return "rate limit" in str(exc).lower()
+
+
 def run_analysis(checkpoint: bool = False):
     # First get all user selections
-    selections = get_user_selections()
+    selections = get_user_selections(checkpoint_enabled=checkpoint)
 
     # Create config with selected research depth
     config = copy.deepcopy(DEFAULT_CONFIG)
@@ -896,6 +1189,16 @@ def run_analysis(checkpoint: bool = False):
     if selections["asset_type"] == "crypto":
         config["data_vendors"]["core_stock_apis"] = "binance"
         config["data_vendors"]["technical_indicators"] = "binance"
+    if checkpoint:
+        record_checkpoint_run(
+            config["data_cache_dir"],
+            selections["ticker"],
+            selections["analysis_date"],
+            asset_type=selections["asset_type"],
+            selected_analysts=[analyst.value for analyst in selections["analysts"]],
+            research_depth=selections["research_depth"],
+            output_language=selections.get("output_language", "English"),
+        )
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1029,7 +1332,14 @@ def run_analysis(checkpoint: bool = False):
 
         # Stream the analysis
         trace = []
-        for chunk in graph.graph.stream(init_agent_state, **args):
+        for chunk in _stream_with_optional_checkpoint(
+            graph,
+            init_agent_state,
+            args,
+            enabled=checkpoint,
+            ticker=selections["ticker"],
+            analysis_date=selections["analysis_date"],
+        ):
             # Process all messages in chunk, deduplicating by message ID
             for message in chunk.get("messages", []):
                 msg_id = getattr(message, "id", None)
@@ -1143,6 +1453,12 @@ def run_analysis(checkpoint: bool = False):
             trade_date=selections["analysis_date"],
             final_trade_decision=final_state["final_trade_decision"],
         )
+        if checkpoint:
+            clear_checkpoint(
+                config["data_cache_dir"],
+                selections["ticker"],
+                selections["analysis_date"],
+            )
 
         # Update all agent statuses to completed
         for agent in message_buffer.agent_status:
@@ -1204,7 +1520,22 @@ def analyze(
         from tradingagents.graph.checkpointer import clear_all_checkpoints
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
-    run_analysis(checkpoint=checkpoint)
+    try:
+        run_analysis(checkpoint=checkpoint)
+    except Exception as exc:
+        if not _is_rate_limit_error(exc):
+            raise
+        console.print(
+            "\n[bold red]The AI provider rejected the request because its rate limit was reached.[/bold red]"
+        )
+        console.print(
+            "[yellow]Wait for the provider quota to reset or choose another provider/model, then run start.bat again.[/yellow]"
+        )
+        if checkpoint:
+            console.print(
+                "[green]Completed analysis steps were saved and will be resumed on the next run.[/green]"
+            )
+        raise typer.Exit(code=1) from exc
 
 
 if __name__ == "__main__":
