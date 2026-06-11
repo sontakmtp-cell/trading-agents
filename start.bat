@@ -17,6 +17,16 @@ if errorlevel 1 (
     pause
     exit /b
 )
+python -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo Pip not found in virtual environment. Installing pip...
+    python -m ensurepip --upgrade
+    if errorlevel 1 (
+        echo Failed to install pip. Delete the venv folder and run start.bat again.
+        pause
+        exit /b
+    )
+)
 echo Installing/updating dependencies...
 python -m pip install -r requirements.txt
 if errorlevel 1 (

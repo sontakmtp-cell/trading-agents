@@ -496,13 +496,14 @@ def get_user_selections(checkpoint_enabled: bool = False):
             )
             for item in resumable
         ]
-        choices.append(questionary.Choice("Start a new analysis", value=None))
-        resume_checkpoint = questionary.select(
+        choices.append(questionary.Choice("Start a new analysis", value="__NEW__"))
+        selected_resume = questionary.select(
             "Unfinished checkpoint found. What do you want to do?",
             choices=choices,
             instruction="\n- Choose a checkpoint to continue, or start fresh",
         ).ask()
-        if resume_checkpoint:
+        if isinstance(selected_resume, dict):
+            resume_checkpoint = selected_resume
             analysts = resume_checkpoint.get("selected_analysts") or ["market"]
             analyst_labels = ", ".join(analysts)
             console.print(
@@ -520,6 +521,8 @@ def get_user_selections(checkpoint_enabled: bool = False):
                     border_style="yellow",
                 )
             )
+        else:
+            resume_checkpoint = None
 
     # State machine variables
     selected_ticker = resume_checkpoint["ticker"] if resume_checkpoint else "SPY"
