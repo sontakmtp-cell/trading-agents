@@ -101,6 +101,20 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Claude Sonnet 4.6 - Best speed and intelligence balance", "claude-sonnet-4-6"),
         ],
     },
+    "nginmmo": {
+        "quick": [
+            ("Nghimmo Sonnet 4.6 - Balanced daily use", "nghi/claude-sonnet-4.6"),
+            ("Nghimmo Haiku 4.5 - Fast, low-token tasks", "nghi/claude-haiku-4.5"),
+            ("Nghimmo Auto - Let Nghimmo choose", "nghi/auto"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("Nghimmo Opus 4.8 - Strongest reasoning", "nghi/claude-opus-4.8"),
+            ("Nghimmo Opus 4.8 Thinking - Deep reasoning", "nghi/claude-opus-4.8-thinking"),
+            ("Nghimmo Sonnet 4.6 Thinking - Balanced reasoning", "nghi/claude-sonnet-4.6-thinking"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     "google": {
         "quick": [
             ("Gemini 3.5 Flash - Latest, frontier agentic + coding (GA)", "gemini-3.5-flash"),
@@ -132,12 +146,14 @@ MODEL_OPTIONS: ProviderModeOptions = {
         "quick": [
             ("Mistral Small Latest - Fast, cost-efficient", "mistral-small-latest"),
             ("Mistral Medium Latest - Balanced speed and quality", "mistral-medium-latest"),
+            ("Mistral Medium 2508 - Snapshot build", "mistral-medium-2508"),
             ("Codestral Latest - Code-specialized", "codestral-latest"),
             ("Custom model ID", "custom"),
         ],
         "deep": [
             ("Mistral Large Latest - Flagship, top reasoning", "mistral-large-latest"),
             ("Mistral Medium Latest - Balanced performance", "mistral-medium-latest"),
+            ("Mistral Medium 2508 - Snapshot build", "mistral-medium-2508"),
             ("Pixtral Large Latest - Multimodal flagship", "pixtral-large-latest"),
             ("Custom model ID", "custom"),
         ],

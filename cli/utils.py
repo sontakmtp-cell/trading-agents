@@ -158,10 +158,10 @@ def select_research_depth() -> int:
 
     # Define research depth options with their corresponding values
     DEPTH_OPTIONS = [
-        ("<- Back to previous step", "__BACK__"),
         ("Shallow - Quick research, few debate and strategy discussion rounds", 1),
         ("Medium - Middle ground, moderate debate rounds and strategy discussion", 3),
         ("Deep - Comprehensive research, in depth debate and strategy discussion", 5),
+        ("<- Back to previous step", "__BACK__"),
     ]
 
     choice = questionary.select(
@@ -204,7 +204,6 @@ def select_openrouter_model() -> str:
 
     while True:
         choices = [
-            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice("DeepSeek V4 Pro (deepseek/deepseek-v4-pro)", value="deepseek/deepseek-v4-pro"),
             questionary.Choice("DeepSeek V4 Flash (deepseek/deepseek-v4-flash)", value="deepseek/deepseek-v4-flash"),
         ]
@@ -216,6 +215,7 @@ def select_openrouter_model() -> str:
                 if added >= 5:
                     break
         choices.append(questionary.Choice("Custom model ID", value="custom"))
+        choices.append(questionary.Choice("<- Back to previous step", value="__BACK__"))
 
         choice = questionary.select(
             "Select OpenRouter Model (latest available):",
@@ -267,11 +267,10 @@ def _select_model(provider: str, mode: str) -> str:
             return res.strip()
 
         choices = [
-            questionary.Choice("<- Back to previous step", value="__BACK__")
-        ] + [
             questionary.Choice(display, value=value)
             for display, value in get_model_options(provider, mode)
         ]
+        choices.append(questionary.Choice("<- Back to previous step", value="__BACK__"))
 
         choice = questionary.select(
             f"Select Your [{mode.title()}-Thinking LLM Engine]:",
@@ -321,6 +320,7 @@ def _llm_provider_table() -> list[tuple[str, str, str | None]]:
         ("OpenAI", "openai", "https://api.openai.com/v1"),
         ("Google", "google", None),
         ("Anthropic", "anthropic", "https://api.anthropic.com/"),
+        ("Nghimmo", "nginmmo", "https://api.nghimmo.com/v1"),
         ("xAI", "xai", "https://api.x.ai/v1"),
         ("DeepSeek", "deepseek", "https://api.deepseek.com"),
         ("Mistral", "mistral", "https://api.mistral.ai/v1"),
@@ -349,10 +349,10 @@ def select_llm_provider() -> tuple[str, str | None] | str:
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
-            questionary.Choice("<- Back to previous step", value="__BACK__")
-        ] + [
             questionary.Choice(display, value=(provider_key, url))
             for display, provider_key, url in PROVIDERS
+        ] + [
+            questionary.Choice("<- Back to previous step", value="__BACK__")
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
@@ -374,10 +374,10 @@ def select_llm_provider() -> tuple[str, str | None] | str:
 def ask_openai_reasoning_effort() -> str:
     """Ask for OpenAI reasoning effort level."""
     choices = [
-        questionary.Choice("<- Back to previous step", "__BACK__"),
         questionary.Choice("Medium (Default)", "medium"),
         questionary.Choice("High (More thorough)", "high"),
         questionary.Choice("Low (Faster)", "low"),
+        questionary.Choice("<- Back to previous step", "__BACK__"),
     ]
     choice = questionary.select(
         "Select Reasoning Effort:",
@@ -403,10 +403,10 @@ def ask_anthropic_effort() -> str | None:
     choice = questionary.select(
         "Select Effort Level:",
         choices=[
-            questionary.Choice("<- Back to previous step", "__BACK__"),
             questionary.Choice("High (recommended)", "high"),
             questionary.Choice("Medium (balanced)", "medium"),
             questionary.Choice("Low (faster, cheaper)", "low"),
+            questionary.Choice("<- Back to previous step", "__BACK__"),
         ],
         style=questionary.Style([
             ("selected", "fg:cyan noinherit"),
@@ -428,9 +428,9 @@ def ask_gemini_thinking_config() -> str | None:
     choice = questionary.select(
         "Select Thinking Mode:",
         choices=[
-            questionary.Choice("<- Back to previous step", "__BACK__"),
             questionary.Choice("Enable Thinking (recommended)", "high"),
             questionary.Choice("Minimal/Disable Thinking", "minimal"),
+            questionary.Choice("<- Back to previous step", "__BACK__"),
         ],
         style=questionary.Style([
             ("selected", "fg:green noinherit"),
@@ -452,7 +452,6 @@ def ask_glm_region() -> tuple[str, str] | str:
     choice = questionary.select(
         "Select GLM platform:",
         choices=[
-            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice(
                 "Z.AI — api.z.ai (international, uses ZHIPU_API_KEY)",
                 value=("glm", "https://api.z.ai/api/paas/v4/"),
@@ -461,6 +460,7 @@ def ask_glm_region() -> tuple[str, str] | str:
                 "BigModel — open.bigmodel.cn (China, uses ZHIPU_CN_API_KEY)",
                 value=("glm-cn", "https://open.bigmodel.cn/api/paas/v4/"),
             ),
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
         ],
         style=questionary.Style([
             ("selected", "fg:cyan noinherit"),
@@ -483,7 +483,6 @@ def ask_qwen_region() -> tuple[str, str] | str:
     choice = questionary.select(
         "Select Qwen region:",
         choices=[
-            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice(
                 "International — dashscope-intl.aliyuncs.com (uses DASHSCOPE_API_KEY)",
                 value=("qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
@@ -492,6 +491,7 @@ def ask_qwen_region() -> tuple[str, str] | str:
                 "China — dashscope.aliyuncs.com (uses DASHSCOPE_CN_API_KEY)",
                 value=("qwen-cn", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
             ),
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
         ],
         style=questionary.Style([
             ("selected", "fg:cyan noinherit"),
@@ -514,7 +514,6 @@ def ask_minimax_region() -> tuple[str, str] | str:
     choice = questionary.select(
         "Select MiniMax region:",
         choices=[
-            questionary.Choice("<- Back to previous step", value="__BACK__"),
             questionary.Choice(
                 "Global — api.minimax.io (uses MINIMAX_API_KEY)",
                 value=("minimax", "https://api.minimax.io/v1"),
@@ -523,6 +522,7 @@ def ask_minimax_region() -> tuple[str, str] | str:
                 "China — api.minimaxi.com (uses MINIMAX_CN_API_KEY)",
                 value=("minimax-cn", "https://api.minimaxi.com/v1"),
             ),
+            questionary.Choice("<- Back to previous step", value="__BACK__"),
         ],
         style=questionary.Style([
             ("selected", "fg:cyan noinherit"),
@@ -615,7 +615,6 @@ def ask_output_language() -> str:
     choice = questionary.select(
         "Select Output Language:",
         choices=[
-            questionary.Choice("<- Back to previous step", "__BACK__"),
             questionary.Choice("English (default)", "English"),
             questionary.Choice("Chinese (中文)", "Chinese"),
             questionary.Choice("Japanese (日本語)", "Japanese"),
@@ -629,6 +628,7 @@ def ask_output_language() -> str:
             questionary.Choice("Russian (Русский)", "Russian"),
             questionary.Choice("Vietnamese (Tiếng Việt)", "Vietnamese"),
             questionary.Choice("Custom language", "custom"),
+            questionary.Choice("<- Back to previous step", "__BACK__"),
         ],
         style=questionary.Style([
             ("selected", "fg:yellow noinherit"),

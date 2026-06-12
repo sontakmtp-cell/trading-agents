@@ -164,6 +164,7 @@ _PROVIDER_BASE_URL = {
     "minimax":    "https://api.minimax.io/v1",
     "minimax-cn": "https://api.minimaxi.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
+    "nginmmo":    "https://api.nghimmo.com/v1",
     "ollama":     "http://localhost:11434/v1",
 }
 

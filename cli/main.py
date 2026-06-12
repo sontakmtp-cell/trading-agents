@@ -419,7 +419,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     # LLM and tool stats from callback handler
     if stats_handler:
         stats = stats_handler.get_stats()
-        stats_parts.append(f"LLM: {stats['llm_calls']}")
+        stats_parts.append(f"Requests: {stats['llm_calls']}")
         stats_parts.append(f"Tools: {stats['tool_calls']}")
 
         # Token display with graceful fallback
@@ -866,9 +866,9 @@ def get_user_selections(checkpoint_enabled: bool = False):
                 briefing_method = questionary.select(
                     "How would you like to provide the briefing?",
                     choices=[
-                        questionary.Choice("<- Back to previous step", value="__BACK__"),
                         "Type directly in terminal",
                         "Load from file",
+                        questionary.Choice("<- Back to previous step", value="__BACK__"),
                     ],
                 ).ask()
 
